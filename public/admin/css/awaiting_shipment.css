@@ -1,0 +1,201 @@
+/* Optional custom CSS for sidebar */
+.badge-temu {
+    background-color: #ff6a00; /* Temu orange */
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.badge-tiktok {
+    background-color: #ee1d52; /* TikTok pink */
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.sidebar {
+    background-color: #f8f9fa;
+    padding: 10px;
+    width: 100%;
+    min-height: 200px;
+}
+.sidebar .form-select,
+.sidebar .form-control {
+    border-color: #dee2e6;
+    transition: border-color 0.2s ease;
+}
+.sidebar .form-select:focus,
+.sidebar .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+}
+.sidebar .input-group-text {
+    display: none;
+}
+.sidebar #rateDisplay {
+    font-weight: bold;
+    color: #28a745;
+}
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.toolbar .btn {
+    font-size: 13px;
+    padding: 6px 10px;
+}
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+.shipment-table {
+    width: 100% !important;
+    border-collapse: collapse;
+    background: white;
+    font-size: 13px;
+    border: 1px solid #dee2e6; /* Table outer border */
+}
+.shipment-table th,
+.shipment-table td {
+    padding: 8px 10px;
+    border: 1px solid #dee2e6; /* Cell borders */
+}
+.shipment-table thead {
+    background: #f3f4f6;
+    font-weight: bold;
+}
+
+/* Sidebar form styles */
+.sidebar label {
+    display: block;
+    margin-bottom: 5px;
+}
+.sidebar .form-group {
+    margin-bottom: 10px;
+}
+.sidebar .btn {
+    width: 100%;
+}
+#tableCol {
+    overflow-x: auto;
+}
+
+/* Modal styles */
+.modal.left .modal-dialog,
+.modal.right .modal-dialog {
+    position: fixed;
+    margin: auto;
+    width: 400px;
+    height: 100%;
+    transform: translate3d(0%, 0, 0);
+}
+.modal.left .modal-content,
+.modal.right .modal-content {
+    height: 100%;
+    overflow-y: auto;
+}
+.modal.left .modal-body,
+.modal.right .modal-body {
+    padding: 15px 15px 80px;
+}
+.modal.right.fade .modal-dialog {
+    right: -400px;
+    transition: opacity 0.3s linear, right 0.3s ease-out;
+}
+.modal.right.fade.show .modal-dialog {
+    right: 0;
+}
+.modal-content {
+    border-radius: 0;
+    border: none;
+}
+.modal-header {
+    border-bottom: 1px solid #eee;
+    background-color: #f8f9fa;
+}
+
+/* Loader Styles */
+.loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    pointer-events: auto;
+}
+.loader-content {
+    background: #fff;
+    padding: 20px 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+.spinner {
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.loader-active body {
+    pointer-events: none;
+}
+
+.select2-container {
+    width: 100% !important;
+}
+.select2-dropdown {
+    z-index: 1051;
+}
+
+/* DataTables Thead Styling */
+.dataTables_wrapper table {
+    border-collapse: collapse;
+    border: 1px solid #dee2e6; /* Table outer border */
+}
+.dataTables_wrapper table th,
+.dataTables_wrapper table td {
+    border: 1px solid #dee2e6; /* Cell borders */
+}
+.dataTables_wrapper table thead {
+    background: linear-gradient(135deg, #6c5ce7, #00b894);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+.dataTables_wrapper table thead th {
+    border-bottom: 2px solid rgba(255,255,255,0.3);
+    padding: 10px 12px;
+}
+.dataTables_wrapper table thead th:first-child {
+    border-top-left-radius: 8px;
+}
+.dataTables_wrapper table thead th:last-child {
+    border-top-right-radius: 8px;
+}
+/* Hover effect for rows */
+.dataTables_wrapper table tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+    transition: background-color 0.2s ease;
+}

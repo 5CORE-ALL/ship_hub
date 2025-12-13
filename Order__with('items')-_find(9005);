@@ -1,0 +1,32 @@
+[90m= [39m[34;4mIlluminate\Database\Eloquent\Collection[39;24m {#6377
+    [34mall[39m: [
+      [34;4mApp\Models\OrderItem[39;24m {#6378
+        [34mid[39m: [35m9352[39m,
+        [34morder_id[39m: [35m9005[39m,
+        [34morder_number[39m: [36mnull[39m,
+        [34morder_item_id[39m: "[32m34727_BBY03-807099862545-A-1[39m",
+        [34msku[39m: "[32mDS 01 BLK[39m",
+        [34masin[39m: [36mnull[39m,
+        [34mupc[39m: [36mnull[39m,
+        [34mproduct_name[39m: "[32mDrum Throne 3" Thick Padded Comfortable Guitar Stool Drummer Chair Adjustable Musician Seat[39m",
+        [34mquantity_ordered[39m: [35m1[39m,
+        [34mquantity_shipped[39m: [35m1[39m,
+        [34munit_price[39m: "[32m29.99[39m",
+        [34mitem_tax[39m: "[32m2.70[39m",
+        [34mpromotion_discount[39m: "[32m0.00[39m",
+        [34mcurrency[39m: "[32mUSD[39m",
+        [34mis_gift[39m: [35m0[39m,
+        [34mweight[39m: "[32m20.00[39m",
+        [34mlength[39m: "[32m15.70[39m",
+        [34mwidth[39m: "[32m13.50[39m",
+        [34mheight[39m: "[32m7.00[39m",
+        [34mweight_unit[39m: [36mnull[39m,
+        [34mdimensions[39m: [36mnull[39m,
+        [34mmarketplace[39m: "[32mBest Buy USA[39m",
+        [34mraw_data[39m: [36mnull[39m,
+        [34mcreated_at[39m: "[32m2025-10-18 04:48:03[39m",
+        [34mupdated_at[39m: "[32m2025-10-18 14:13:03[39m",
+      },
+    ],
+  }
+
