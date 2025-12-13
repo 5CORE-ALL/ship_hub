@@ -15,7 +15,7 @@ class ShopifyService
     public function __construct()
     {
         $this->shopUrl = env('SHOPIFY_DOMAIN', '5-core.myshopify.com');
-        $this->adminAccessToken = env('SHOPIFY_TOKEN', '[REMOVED_SHOPIFY_TOKEN]');
+        $this->adminAccessToken = env('SHOPIFY_TOKEN');
         $this->storefrontToken = env('SHOPIFY_STOREFRONT_TOKEN'); // Storefront token needed for checkouts
         $this->version = env('SHOPIFY_API_VERSION', '2025-07');
     }
