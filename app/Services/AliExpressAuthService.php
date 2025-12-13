@@ -101,6 +101,20 @@ class AliExpressAuthService
     //         return ['error' => $e->getMessage()];
     //     }
     // }
+    /**
+     * Create IopClient with proper timeout settings
+     */
+    protected function createIopClient($url = null)
+    {
+        $url = $url ?? $this->url1;
+        $client = new \IopClient($url, $this->appKey, $this->appSecret);
+        // Set timeouts to prevent cURL timeout errors (60 seconds connect, 120 seconds read)
+        // Increased timeouts for slow API responses
+        $client->connectTimeout = 60;
+        $client->readTimeout = 120;
+        return $client;
+    }
+
     public function getAccessToken(int $storeId): ?string
 {
 
@@ -117,7 +131,7 @@ class AliExpressAuthService
     }
 
     try {
-        $client = new \IopClient($this->url, $this->appKey, $this->appSecret);
+        $client = $this->createIopClient($this->url);
         $request = new \IopRequest('/auth/token/refresh');
         $request->addApiParam('grant_type', 'refresh_token');
         $request->addApiParam('refresh_token', $integration->refresh_token);
@@ -206,7 +220,7 @@ class AliExpressAuthService
 //         return ['error' => $e->getMessage()];
 //     }
 // }
-public function getOrders($days = 5)
+public function getOrders($days = 5, $currentPage = 1, $pageSize = 50)
 {
     try {
         // 1️⃣ Get a fresh access token dynamically
@@ -216,8 +230,8 @@ public function getOrders($days = 5)
         }
         $accessToken = $tokenData;
 
-        // 2️⃣ Initialize SDK client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Initialize SDK client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Initialize request
         $request = new \IopRequest('aliexpress.trade.seller.orderlist.get', 'POST');
@@ -229,23 +243,20 @@ public function getOrders($days = 5)
             "modified_date_start" => date('Y-m-d H:i:s', strtotime("-{$days} days")),
             "modified_date_end"   => date('Y-m-d H:i:s'),
             // "order_status_list"   => ["SELLER_PART_SEND_GOODS"],
-            "page_size"           => 20,
-            "current_page"        => 1
+            "page_size"           => $pageSize,
+            "current_page"        => $currentPage
         ];
 
         // 5️⃣ Add parameters as JSON string
         $request->addApiParam('param_aeop_order_query', json_encode($params));
 
-        // 6️⃣ Explicitly add session (access token)
-        $request->addApiParam('session', $accessToken);
+        // 6️⃣ Execute the request - pass access token as second parameter (not as session param)
+        $response = $client->execute($request, $accessToken);
 
-        // 7️⃣ Execute the request
-        $response = $client->execute($request);
-
-        // 8️⃣ Decode JSON response
+        // 7️⃣ Decode JSON response
         $data = json_decode($response, true);
 
-        // 9️⃣ Log for debugging
+        // 8️⃣ Log for debugging
         \Log::info('AliExpress Orders Response', [
             'params'   => $params,
             'response' => $data,
@@ -254,11 +265,21 @@ public function getOrders($days = 5)
         return $data;
 
     } catch (\Exception $e) {
+        $errorCode = $e->getCode();
+        $errorMessage = $e->getMessage();
+        
+        // Provide more helpful error messages
+        if ($errorCode == 28) {
+            $errorMessage = "Connection timeout - The AliExpress API request timed out. This may be due to network issues or API slowness.";
+        }
+        
         \Log::error('AliExpress Orders Error', [
-            'error' => $e->getMessage(),
+            'error_code' => $errorCode,
+            'error' => $errorMessage,
+            'trace' => $e->getTraceAsString(),
         ]);
 
-        return ['error' => $e->getMessage()];
+        return ['error' => $errorMessage];
     }
 }
 public function getOrderDetail($orderId)
@@ -271,8 +292,8 @@ public function getOrderDetail($orderId)
         }
         $accessToken = $tokenData;
 
-        // 2️⃣ Init client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Init client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Init request for order detail
         $request = new \IopRequest('aliexpress.trade.new.redefining.findorderbyid');
@@ -287,10 +308,9 @@ public function getOrderDetail($orderId)
 ];
 
         $request->addApiParam('param1', json_encode($params));
-        // $request->addApiParam('seller_channel_id', '1234'); // replace with your actual seller_channel_id
-        $request->addApiParam('session', $accessToken);
+        // Note: Don't add session as param - pass it to execute() instead
 
-        // 5️⃣ Execute request
+        // 5️⃣ Execute request - pass access token as second parameter
         $response = $client->execute($request, $accessToken);
 
         // 6️⃣ Decode response
@@ -322,8 +342,8 @@ public function getOrderDetaildecrypt($orderId, $oaid = null)
             throw new \Exception("Failed to get access token");
         }
 
-        // 2️⃣ Init client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Init client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Init request for decrypt API
         $request = new \IopRequest('aliexpress.trade.seller.order.decrypt');
@@ -338,7 +358,7 @@ public function getOrderDetaildecrypt($orderId, $oaid = null)
             throw new \Exception("Missing OAID for order ID {$orderId}");
         }
 
-        // 5️⃣ Execute request
+        // 5️⃣ Execute request - pass access token as second parameter
         $response = $client->execute($request, $accessToken);
 
         // 6️⃣ Decode and log response
@@ -371,16 +391,13 @@ public function listLogisticsServices()
             throw new \Exception("Failed to get access token");
         }
 
-        // 2️⃣ Initialize client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Initialize client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Initialize request
         $request = new \IopRequest('aliexpress.logistics.redefining.listlogisticsservice', 'POST');
 
-        // 4️⃣ Add session token
-        $request->addApiParam('session', $accessToken);
-
-        // 5️⃣ Execute request
+        // 4️⃣ Execute request - pass access token as second parameter (not as session param)
         $response = $client->execute($request, $accessToken);
 
         // 6️⃣ Decode and log response
@@ -407,7 +424,7 @@ public function fulfillOrder($orderId, $trackingNumber, $carrierName = 'Other', 
         if (!$accessToken) {
             throw new \Exception("Failed to get access token");
         }
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        $client = $this->createIopClient();
         $request = new \IopRequest('aliexpress.solution.order.fulfill');
         $request->addApiParam('out_ref', (string) $orderId);
         $request->addApiParam('send_type', 'all'); // 'all' = ship all items, 'part' = partial shipment
@@ -450,8 +467,8 @@ public function getProductList($page = 1, $pageSize = 20)
         }
         $accessToken = $tokenData;
 
-        // 2️⃣ Initialize SDK client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Initialize SDK client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Initialize request
         $request = new \IopRequest('aliexpress.solution.product.list.get', 'POST');
@@ -465,11 +482,10 @@ public function getProductList($page = 1, $pageSize = 20)
             "page_size"    => (string)$pageSize
         ];
 
-        // 5️⃣ Add params and access token
+        // 5️⃣ Add params
         $request->addApiParam('aeop_a_e_product_list_query', json_encode($params));
-        $request->addApiParam('session', $accessToken);
 
-        // 6️⃣ Execute API call
+        // 6️⃣ Execute API call - pass access token as second parameter
         $response = $client->execute($request, $accessToken);
         $data = json_decode($response, true);
 
@@ -496,8 +512,8 @@ public function getLocalServiceProductList($page = 1, $pageSize = 20)
             throw new \Exception("Failed to get access token");
         }
 
-        // 2️⃣ Initialize client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Initialize client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Initialize request
         $request = new \IopRequest('aliexpress.local.service.products.list', 'POST');
@@ -522,9 +538,8 @@ public function getLocalServiceProductList($page = 1, $pageSize = 20)
         $request->addApiParam('page_size', (string) $pageSize);
         $request->addApiParam('search_condition_do', json_encode($searchCondition));
         $request->addApiParam('current_page', (string) $page);
-        $request->addApiParam('session', $accessToken);
 
-        // 6️⃣ Execute API request
+        // 6️⃣ Execute API request - pass access token as second parameter
         $response = $client->execute($request, $accessToken);
         $data = json_decode($response, true);
 
@@ -554,8 +569,8 @@ public function getProductDetail($productId)
             throw new \Exception("Failed to get access token");
         }
 
-        // 2️⃣ Initialize SDK client
-        $client = new \IopClient($this->url1, $this->appKey, $this->appSecret);
+        // 2️⃣ Initialize SDK client with proper timeouts
+        $client = $this->createIopClient();
 
         // 3️⃣ Ensure product ID is string
         $productId = (string) $productId;
@@ -566,13 +581,12 @@ public function getProductDetail($productId)
         // 5️⃣ Required API parameters
         $request->addApiParam('product_id', $productId);
         $request->addApiParam('ship_to_country', 'US');  // mandatory
-        $request->addApiParam('session', $accessToken);
 
         // Optional: currency & language can be added if needed
         // $request->addApiParam('target_currency', 'USD');
         // $request->addApiParam('target_language', 'en');
 
-        // 6️⃣ Execute API call
+        // 6️⃣ Execute API call - pass access token as second parameter
         $response = $client->execute($request, $accessToken);
         $data = json_decode($response, true);
 

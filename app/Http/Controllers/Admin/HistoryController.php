@@ -169,10 +169,23 @@ public function getOrders(Request $request,$batchId)
     if (empty($orderIds)) {
         return response()->json(['data' => []]);
     }
+    // Subquery to format SKU with quantity for each order, and calculate totals
     $orderItems = DB::table('order_items')
         ->select(
             'order_id',
-            DB::raw("MAX(sku) as item_sku"),
+            DB::raw("
+                CASE 
+                    WHEN COUNT(DISTINCT sku) = 1 THEN 
+                        CONCAT(
+                            MAX(sku), 
+                            '-', 
+                            SUM(quantity_ordered), 
+                            'pcs'
+                        )
+                    ELSE 
+                        CONCAT(COUNT(DISTINCT sku), ' SKUs')
+                END AS item_sku
+            "),
             DB::raw("SUM(weight) as total_weight"),
             DB::raw("SUM(length) as total_length"),
             DB::raw("SUM(width) as total_width"),

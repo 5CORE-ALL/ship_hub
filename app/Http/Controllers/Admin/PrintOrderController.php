@@ -155,27 +155,50 @@ class PrintOrderController extends Controller
 
     public function printLabelsV1(Request $request, ShippingLabelService $labelService,$type)
     {
-        $validated = $request->validate([
-            'order_ids' => 'required|array',
-            'order_ids.*' => 'exists:orders,id',
-        ]);
-
-        $orderIds = $validated['order_ids'];
-        $mergedPdfUrl = $labelService->mergeLabelsPdf_v3($orderIds,$type);
-
-        if ($mergedPdfUrl) {
-            return response()->json([
-                'success' => true,
-                'label_urls' => [$mergedPdfUrl],
-                'message' => 'Labels merged and generated successfully'
+        try {
+            $validated = $request->validate([
+                'order_ids' => 'required|array',
+                'order_ids.*' => 'exists:orders,id',
             ]);
-        }
 
-        return response()->json([
-            'success' => false,
-            'label_urls' => [],
-            'message' => 'No labels found or failed to merge PDFs'
-        ], 404);
+            $orderIds = $validated['order_ids'];
+            
+            if (empty($orderIds)) {
+                return response()->json([
+                    'success' => false,
+                    'label_urls' => [],
+                    'message' => 'No orders selected'
+                ], 400);
+            }
+
+            $mergedPdfUrl = $labelService->mergeLabelsPdf_v3($orderIds, $type);
+
+            if ($mergedPdfUrl) {
+                return response()->json([
+                    'success' => true,
+                    'label_urls' => [$mergedPdfUrl],
+                    'message' => 'Labels merged and generated successfully'
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'label_urls' => [],
+                'message' => 'No labels found or failed to merge PDFs'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error in printLabelsV1: ' . $e->getMessage(), [
+                'order_ids' => $request->input('order_ids'),
+                'type' => $type,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'label_urls' => [],
+                'message' => $e->getMessage() ?: 'An unexpected error occurred while generating label.'
+            ], 500);
+        }
     }
 //    public function getAwaitingPrintOrders(Request $request)
 //   {
@@ -284,18 +307,33 @@ public function getAwaitingPrintOrders(Request $request)
 {
     $fromDate = $request->input('from_date') ?? now()->toDateString();
     $toDate   = $request->input('to_date') ?? now()->toDateString();
+    
+    // Subquery to format SKU with quantity for each order
     $orderItems = DB::table('order_items')
         ->select(
             'order_id',
-            DB::raw("CASE WHEN COUNT(id) > 1 THEN SUM(quantity_ordered) ELSE MAX(sku) END AS item_sku")
+            DB::raw("
+                CASE 
+                    WHEN COUNT(DISTINCT sku) = 1 THEN 
+                        CONCAT(
+                            MAX(sku), 
+                            '-', 
+                            SUM(quantity_ordered), 
+                            'pcs'
+                        )
+                    ELSE 
+                        CONCAT(COUNT(DISTINCT sku), ' SKUs')
+                END AS item_sku
+            ")
         )
         ->groupBy('order_id');
+    
     $query = DB::table('orders as o')
         ->join('shipments as s', function ($join) {
             $join->on('s.order_id', '=', 'o.id')
                  ->where('s.label_status', '=', 'active');
         })
-        ->joinSub($orderItems, 'oi', function ($join) {
+        ->leftJoinSub($orderItems, 'oi', function ($join) {
             $join->on('oi.order_id', '=', 'o.id');
         })
         ->select(
@@ -316,7 +354,7 @@ public function getAwaitingPrintOrders(Request $request)
             's.label_url',
             's.label_id',
             's.tracking_url',
-            'oi.item_sku'
+            DB::raw('COALESCE(oi.item_sku, "N/A") as item_sku')
         )
         ->where('o.order_status', 'shipped')
         ->where('o.printing_status', 1);
@@ -326,7 +364,7 @@ public function getAwaitingPrintOrders(Request $request)
         $search = $request->search['value'];
         $query->where(function ($q) use ($search) {
             $q->where('o.order_number', 'like', "%{$search}%")
-              ->orWhere('oi.item_sku', 'like', "%{$search}%");
+              ->orWhereRaw('COALESCE(oi.item_sku, "N/A") LIKE ?', ["%{$search}%"]);
         });
     }
     if (!empty($request->marketplace)) {

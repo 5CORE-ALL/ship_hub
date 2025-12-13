@@ -12,7 +12,17 @@
                 Ship Smarter, Not Harder.
             </p>
         </div>
-        <p class="card-text mb-5 intro">Use your Google account to login</p>
+        @php
+            $isLocalhost = in_array(request()->getHost(), ['localhost', '127.0.0.1']) || 
+                          str_contains(request()->getHost(), 'localhost') ||
+                          config('app.env') === 'local';
+        @endphp
+
+        @if ($isLocalhost)
+            <p class="card-text mb-4 intro">Login with your credentials</p>
+        @else
+            <p class="card-text mb-5 intro">Use your Google account to login</p>
+        @endif
 
         @if (session('status'))
         <div class="alert alert-info">
@@ -20,11 +30,82 @@
         </div>
         @endif
 
-        <div class="d-grid">
-            <a href="{{ url('auth/google') }}" class="btn btn-danger btn-lg radius-30 google-btn">
-                <i class="bi bi-google me-2"></i> Sign in with Google
-            </a>
+        @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
         </div>
+        @endif
+
+        @if ($isLocalhost)
+            <!-- Email/Password Login Form for Localhost -->
+            <form method="POST" action="{{ route('login') }}" class="text-start">
+                @csrf
+                
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email Address</label>
+                    <input type="email" 
+                           class="form-control @error('email') is-invalid @enderror" 
+                           id="email" 
+                           name="email" 
+                           value="{{ old('email') }}" 
+                           required 
+                           autofocus 
+                           placeholder="Enter your email">
+                    @error('email')
+                        <div class="invalid-feedback">{{ $message }}</div>
+                    @enderror
+                </div>
+
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" 
+                           class="form-control @error('password') is-invalid @enderror" 
+                           id="password" 
+                           name="password" 
+                           required 
+                           placeholder="Enter your password">
+                    @error('password')
+                        <div class="invalid-feedback">{{ $message }}</div>
+                    @enderror
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                    <label class="form-check-label" for="remember">
+                        Remember me
+                    </label>
+                </div>
+
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-danger btn-lg radius-30 google-btn">
+                        <i class="bi bi-box-arrow-in-right me-2"></i> Sign In
+                    </button>
+                </div>
+            </form>
+
+            <!-- Divider -->
+            <div class="text-center my-4">
+                <span class="text-muted">OR</span>
+            </div>
+
+            <!-- Google Login Option -->
+            <div class="d-grid">
+                <a href="{{ url('auth/google') }}" class="btn btn-outline-danger btn-lg radius-30">
+                    <i class="bi bi-google me-2"></i> Sign in with Google
+                </a>
+            </div>
+        @else
+            <!-- Google Login Only for Production -->
+            <div class="d-grid">
+                <a href="{{ url('auth/google') }}" class="btn btn-danger btn-lg radius-30 google-btn">
+                    <i class="bi bi-google me-2"></i> Sign in with Google
+                </a>
+            </div>
+        @endif
 
         <!-- Privacy Policy Link -->
         <p class="text-center mt-3 mb-3 policy-links">
@@ -238,5 +319,52 @@
     /* Style for policy links */
     .policy-links a:hover {
         text-decoration: underline;
+    }
+
+    /* Form styling for localhost login */
+    .form-control {
+        border-radius: 0.75rem;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        padding: 12px 16px;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .form-control:focus {
+        border-color: #dc3545;
+        box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+    }
+
+    .form-label {
+        font-weight: 500;
+        color: #495057;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-check-input:checked {
+        background-color: #dc3545;
+        border-color: #dc3545;
+    }
+
+    .alert-danger {
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+        color: #721c24;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        border-radius: 0.75rem;
+        font-size: 0.95rem;
+        box-shadow: 0 4px 12px rgba(220, 53, 69, 0.1);
+    }
+
+    .btn-outline-danger {
+        border: 2px solid #dc3545;
+        color: #dc3545;
+        background: transparent;
+    }
+
+    .btn-outline-danger:hover {
+        background: #dc3545;
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
     }
 </style>

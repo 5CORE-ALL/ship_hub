@@ -28,7 +28,17 @@ class TikTokSyncOrders extends Command
             // 1️⃣ Get access token
             $accessToken = $tiktok->getAccessToken($storeId);
             if (!$accessToken) {
-                $this->error('❌ Failed to get TikTok access token.');
+                $integration = \App\Models\Integration::where('store_id', $storeId)->first();
+                if (!$integration) {
+                    $this->error("❌ No integration found for TikTok store ID {$storeId}. Please set up the integration first.");
+                    Log::error("TikTok sync failed: No integration for store_id {$storeId}");
+                } elseif (!$integration->refresh_token) {
+                    $this->error("❌ TikTok integration for store ID {$storeId} is missing refresh_token. Please re-authenticate.");
+                    Log::error("TikTok sync failed: Missing refresh_token for store_id {$storeId}");
+                } else {
+                    $this->error("❌ Failed to refresh TikTok access token for store ID {$storeId}. Token may be expired or invalid.");
+                    Log::error("TikTok sync failed: Token refresh failed for store_id {$storeId}");
+                }
                 return Command::FAILURE;
             }
 
@@ -108,7 +118,6 @@ class TikTokSyncOrders extends Command
                             'order_status' => $status,
                             'fulfillment_status' => $status,
                             'recipient_name' => trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? '')),
-                            'recipient_email' => $orderData['buyer_email'] ?? null,
                             'recipient_email' => $orderData['buyer_email'] ?? null,
                             'recipient_phone' => $recipient['phone_number'] ?? null,
                             'ship_address1' => $recipient['address_line1'] ?? null,

@@ -23,6 +23,7 @@ class EbayOrderSync extends Command
             ->join('marketplaces as m', 's.marketplace_id', '=', 'm.id')
             ->leftJoin('integrations as i', 's.id', '=', 'i.store_id')
             ->where('sc.platform', 'ebay')
+            ->where('s.id', '!=', 4) // Exclude store_id 4, include all others (including those without integrations)
             ->select(
                 's.id as store_id',
                 's.name as store_name',
@@ -33,7 +34,8 @@ class EbayOrderSync extends Command
                 'i.app_id',
                 'i.app_secret',
                 'i.expires_at'
-            )->where('i.store_id','!=',4)
+            )
+            ->distinct()
             ->get();
 
         if ($stores->isEmpty()) {
@@ -44,8 +46,16 @@ class EbayOrderSync extends Command
         foreach ($stores as $store) {
             $this->info("Processing store: {$store->store_name} (ID: {$store->store_id})");
 
-            if (!$store->access_token || !$store->refresh_token || !$store->app_id || !$store->app_secret) {
-                $this->warn("⚠️ Missing integration data for store {$store->store_name}. Skipping.");
+            // Check if integration exists - let getAccessToken handle token refresh
+            if (!$store->refresh_token || !$store->app_id || !$store->app_secret) {
+                $this->warn("⚠️ Missing integration data for store {$store->store_name} (ID: {$store->store_id}). Required: refresh_token, app_id, app_secret. Skipping.");
+                Log::warning('eBay sync: Missing integration data', [
+                    'store_id' => $store->store_id,
+                    'store_name' => $store->store_name,
+                    'has_refresh_token' => !empty($store->refresh_token),
+                    'has_app_id' => !empty($store->app_id),
+                    'has_app_secret' => !empty($store->app_secret),
+                ]);
                 continue;
             }
 
@@ -319,14 +329,10 @@ class EbayOrderSync extends Command
                             $orderData
                         );
 
-                        // Process order items
-//                         if ($existingOrder && $existingOrder->order_status === 'shipped') {
-//     $this->info("Skipping order items for {$orderId} because order is already shipped.");
-//     continue; // Skip items loop
-// }
-                        if ($existingOrder) {
-                            $this->info("Skipping order {$orderId} because it already exists.");
-                            continue; // Skip the entire order and its items
+                        // Process order items - only skip if order was already shipped
+                        if ($existingOrder && in_array($existingOrder->order_status, ['shipped'])) {
+                            $this->info("Skipping order items for {$orderId} because order is already shipped.");
+                            continue; // Skip items loop
                         }
                         foreach ($items as $item) {
                             try {

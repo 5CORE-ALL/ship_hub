@@ -29,12 +29,6 @@ class Kernel extends ConsoleKernel
         $schedule->command('app:sync-ship-station-carriers')->everyThirtyMinutes(); 
         $schedule->command('ebay:vtr-fetch')->hourly();
         // $schedule->command('amazon:fetch-reports')->everyThirtyMinutes(); 
-;
-
-
-        
-        
-        
     }
 
     /**

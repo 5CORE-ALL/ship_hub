@@ -976,77 +976,138 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
 // }
 public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
 {
-    ini_set("max_execution_time", 300);
+    try {
+        ini_set("max_execution_time", 300);
 
-    $labelDir = storage_path("app/public/labels");
-    if (!file_exists($labelDir)) {
-        mkdir($labelDir, 0755, true);
-    }
-
-    $mergedFileName = "merged_labels_" . time() . ".pdf";
-    $mergedFilePath = $labelDir . "/" . $mergedFileName;
-
-    $pdfFiles = [];
-
-    // Collect valid PDFs
-    $shipments = Shipment::whereIn("order_id", $orderIds)
-        ->where("label_status", "active")
-        ->where("void_status", "active")
-        ->get();
-
-    foreach ($shipments as $shipment) {
-        if ($shipment->label_url) {
-            $localPath = storage_path("app/public/labels/" . basename($shipment->label_url));
-            if (file_exists($localPath) && filesize($localPath) > 0) {
-                $pdfFiles[] = $localPath;
+        $labelDir = storage_path("app/public/labels");
+        if (!file_exists($labelDir)) {
+            if (!mkdir($labelDir, 0755, true)) {
+                \Log::error("Failed to create labels directory: {$labelDir}");
+                throw new \Exception("Failed to create labels directory");
             }
         }
-    }
 
-    if (count($pdfFiles) === 0) {
-        \Log::warning("No valid label PDFs found for merge.");
-        return null;
-    }
+        $mergedFileName = "merged_labels_" . time() . ".pdf";
+        $mergedFilePath = $labelDir . "/" . $mergedFileName;
 
-    // Single PDF → just return original
-    if (count($pdfFiles) === 1) {
-        $singleFile = basename($pdfFiles[0]);
-        // Update print info for the single order
+        $pdfFiles = [];
+
+        // Collect valid PDFs
+        $shipments = Shipment::whereIn("order_id", $orderIds)
+            ->where("label_status", "active")
+            ->where("void_status", "active")
+            ->get();
+
+        if ($shipments->isEmpty()) {
+            \Log::warning("No active shipments found for order IDs: " . implode(', ', $orderIds));
+            throw new \Exception("No active shipments found for the selected orders");
+        }
+
+        foreach ($shipments as $shipment) {
+            if ($shipment->label_url) {
+                // Handle both full URLs and relative paths
+                $fileName = basename(parse_url($shipment->label_url, PHP_URL_PATH) ?: $shipment->label_url);
+                $localPath = storage_path("app/public/labels/" . $fileName);
+                
+                if (file_exists($localPath) && filesize($localPath) > 0) {
+                    $pdfFiles[] = $localPath;
+                } else {
+                    \Log::warning("Label file not found or empty: {$localPath} for shipment ID: {$shipment->id}");
+                }
+            } else {
+                \Log::warning("Shipment ID {$shipment->id} has no label_url");
+            }
+        }
+
+        if (count($pdfFiles) === 0) {
+            \Log::warning("No valid label PDFs found for merge. Order IDs: " . implode(', ', $orderIds));
+            throw new \Exception("No valid label PDFs found. Please ensure labels are generated and files exist.");
+        }
+
+        // Single PDF → just return original
+        if (count($pdfFiles) === 1) {
+            $singleFile = basename($pdfFiles[0]);
+            // Update print info for the single order
+            \App\Models\Order::whereIn("id", $orderIds)->update([
+                "print_count" => DB::raw("print_count + 1"),
+                "printing_status" => $type === 'p' ? 2 : DB::raw("printing_status"),
+            ]);
+
+            return asset("storage/labels/" . $singleFile);
+        }
+
+        // Merge PDFs using FPDI
+        $pdf = new Fpdi();
+
+        foreach ($pdfFiles as $file) {
+            try {
+                if (!file_exists($file) || filesize($file) === 0) {
+                    \Log::warning("Skipping invalid PDF file: {$file}");
+                    continue;
+                }
+
+                $pageCount = $pdf->setSourceFile($file);
+                if ($pageCount === 0) {
+                    \Log::warning("PDF file has no pages: {$file}");
+                    continue;
+                }
+
+                for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+                    $tpl = $pdf->importPage($pageNo);
+                    $size = $pdf->getTemplateSize($tpl);
+
+                    if (!$size) {
+                        \Log::warning("Failed to get template size for page {$pageNo} of {$file}");
+                        continue;
+                    }
+
+                    $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
+                    $pdf->useTemplate($tpl);
+                }
+            } catch (\Exception $e) {
+                \Log::error("Error processing PDF file {$file}: " . $e->getMessage());
+                // Continue with other files
+                continue;
+            }
+        }
+
+        // Check if we have any pages added
+        if ($pdf->getNumPages() === 0) {
+            \Log::error("No valid pages found in any PDF files");
+            throw new \Exception("Failed to process PDF files. No valid pages found.");
+        }
+
+        // Save merged PDF
+        if (!is_writable($labelDir)) {
+            \Log::error("Labels directory is not writable: {$labelDir}");
+            throw new \Exception("Labels directory is not writable");
+        }
+
+        $pdf->Output($mergedFilePath, 'F');
+
+        if (!file_exists($mergedFilePath)) {
+            \Log::error("Failed to create merged PDF file: {$mergedFilePath}");
+            throw new \Exception("Failed to create merged PDF file");
+        }
+
+        // Update print info for all orders
         \App\Models\Order::whereIn("id", $orderIds)->update([
             "print_count" => DB::raw("print_count + 1"),
             "printing_status" => $type === 'p' ? 2 : DB::raw("printing_status"),
         ]);
 
-        return asset("storage/labels/" . $singleFile);
+        $mergedUrl = asset("storage/labels/" . $mergedFileName);
+        \Log::info("✅ Merged PDF created successfully using FPDI: " . $mergedUrl);
+
+        return $mergedUrl;
+    } catch (\Exception $e) {
+        \Log::error("Error in mergeLabelsPdf_v3: " . $e->getMessage(), [
+            'order_ids' => $orderIds,
+            'type' => $type,
+            'trace' => $e->getTraceAsString()
+        ]);
+        throw $e; // Re-throw to be caught by controller
     }
-
-    // Merge PDFs using FPDI
-    $pdf = new Fpdi();
-
-    foreach ($pdfFiles as $file) {
-        $pageCount = $pdf->setSourceFile($file);
-        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
-            $tpl = $pdf->importPage($pageNo);
-            $size = $pdf->getTemplateSize($tpl);
-
-            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
-            $pdf->useTemplate($tpl);
-        }
-    }
-
-    // Save merged PDF
-    $pdf->Output($mergedFilePath, 'F');
-
-    // Update print info for all orders
-    \App\Models\Order::whereIn("id", $orderIds)->update([
-        "print_count" => DB::raw("print_count + 1"),
-        "printing_status" => $type === 'p' ? 2 : DB::raw("printing_status"),
-    ]);
-
-    $mergedUrl = asset("storage/labels/" . $mergedFileName);
-    \Log::info("✅ Merged PDF created successfully using FPDI: " . $mergedUrl);
-
-    return $mergedUrl;
 }
 
     public function sanitizeSenderName($name)

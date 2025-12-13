@@ -8,17 +8,27 @@ use Laravel\Socialite\Facades\Socialite;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Http\Request;
 class GoogleController extends Controller
 {
-    public function redirectToGoogle()
+    public function redirectToGoogle(Request $request)
     {
-        return Socialite::driver('google')->redirect();
+        // Use the current request URL to build the callback URL dynamically
+        $redirectUrl = $request->getSchemeAndHttpHost() . '/auth/google/callback';
+        
+        return Socialite::driver('google')
+            ->redirectUrl($redirectUrl)
+            ->redirect();
     }
-    public function handleGoogleCallback()
+    public function handleGoogleCallback(Request $request)
     {
         try {
+            // Use the current request URL to build the callback URL dynamically
+            $redirectUrl = $request->getSchemeAndHttpHost() . '/auth/google/callback';
         
-            $googleUser = Socialite::driver('google')->user();
+            $googleUser = Socialite::driver('google')
+                ->redirectUrl($redirectUrl)
+                ->user();
             Log::info('Google User Data: ', (array) $googleUser->user);
 
             if (!$googleUser || !$googleUser->email) {

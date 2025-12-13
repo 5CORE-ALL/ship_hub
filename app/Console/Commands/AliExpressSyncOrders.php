@@ -23,17 +23,139 @@ class AliExpressSyncOrders extends Command
 
         try {
             $aliService = new AliExpressAuthService();
+            
+            // Check if access token is available
+            $storeId = 9; // AliExpress uses store_id 9
+            $accessToken = $aliService->getAccessToken($storeId);
+            if (!$accessToken) {
+                $integration = \App\Models\Integration::where('store_id', $storeId)->first();
+                if (!$integration) {
+                    $this->error("❌ No integration found for AliExpress store ID {$storeId}. Please set up the integration first.");
+                    Log::error("AliExpress sync failed: No integration for store_id {$storeId}");
+                } elseif (!$integration->refresh_token) {
+                    $this->error("❌ AliExpress integration for store ID {$storeId} is missing refresh_token. Please re-authenticate.");
+                    Log::error("AliExpress sync failed: Missing refresh_token for store_id {$storeId}");
+                } else {
+                    $this->error("❌ Failed to refresh AliExpress access token for store ID {$storeId}. Token may be expired or invalid.");
+                    Log::error("AliExpress sync failed: Token refresh failed for store_id {$storeId}");
+                }
+                return Command::FAILURE;
+            }
 
-            $rawListResponse = $aliService->getOrders(2);
-            $listResponse = json_decode(json_encode($rawListResponse), true, 1024);
+            // Fetch orders from last 30 days to catch any missed orders
+            $days = 30;
+            $allOrdersList = [];
+            $currentPage = 1;
+            $hasMorePages = true;
+            $maxPages = 50; // Safety limit
+            
+            while ($hasMorePages && $currentPage <= $maxPages) {
+                $rawListResponse = $aliService->getOrders($days, $currentPage);
+                $listResponse = json_decode(json_encode($rawListResponse), true, 1024);
+                
+                // Check for API errors
+                if (isset($listResponse['error'])) {
+                    $errorMsg = $listResponse['error'] ?? 'Unknown error';
+                    
+                    // Provide more helpful error messages
+                    if ($errorMsg == '28' || strpos($errorMsg, 'timeout') !== false || strpos($errorMsg, '28') !== false) {
+                        $this->error("❌ AliExpress API Connection Timeout Error");
+                        $this->warn("💡 The API request timed out. This could be due to:");
+                        $this->warn("   - Network connectivity issues");
+                        $this->warn("   - AliExpress API being slow or unavailable");
+                        $this->warn("   - Firewall blocking the connection");
+                        $this->warn("   - Server IP not whitelisted in AliExpress app settings");
+                    } else {
+                        $this->error("❌ AliExpress API Error: " . $errorMsg);
+                    }
+                    
+                    Log::error('AliExpress API Error', [
+                        'error' => $errorMsg,
+                        'error_code' => is_numeric($errorMsg) ? $errorMsg : null,
+                        'full_response' => $listResponse
+                    ]);
+                    break;
+                }
+                
+                // Check for error in response structure
+                if (isset($listResponse['aliexpress_trade_seller_orderlist_get_response']['error_response'])) {
+                    $errorResponse = $listResponse['aliexpress_trade_seller_orderlist_get_response']['error_response'];
+                    $errorMsg = $errorResponse['msg'] ?? $errorResponse['error_message'] ?? 'Unknown API error';
+                    $errorCode = $errorResponse['code'] ?? $errorResponse['error_code'] ?? 'Unknown';
+                    
+                    // Special handling for IP whitelist error
+                    if ($errorCode === 'AppWhiteIpLimit') {
+                        $this->error("❌ AliExpress IP Whitelist Error: The server IP address is not whitelisted in AliExpress app settings.");
+                        $this->warn("💡 Solution: Add your server's IP address to the AliExpress app whitelist in the AliExpress Open Platform.");
+                        $this->warn("   Current server IP needs to be added to: AliExpress Open Platform > Your App > Security Settings > IP Whitelist");
+                    } else {
+                        $this->error("❌ AliExpress API Error [{$errorCode}]: {$errorMsg}");
+                    }
+                    
+                    Log::error('AliExpress API Error Response', [
+                        'error_code' => $errorCode,
+                        'error_message' => $errorMsg,
+                        'full_response' => $errorResponse
+                    ]);
+                    break;
+                }
+                
+                // Also check for direct error_response (not nested)
+                if (isset($listResponse['error_response'])) {
+                    $errorResponse = $listResponse['error_response'];
+                    $errorMsg = $errorResponse['msg'] ?? $errorResponse['error_message'] ?? 'Unknown API error';
+                    $errorCode = $errorResponse['code'] ?? $errorResponse['error_code'] ?? 'Unknown';
+                    
+                    if ($errorCode === 'AppWhiteIpLimit') {
+                        $this->error("❌ AliExpress IP Whitelist Error: The server IP address is not whitelisted in AliExpress app settings.");
+                        $this->warn("💡 Solution: Add your server's IP address to the AliExpress app whitelist in the AliExpress Open Platform.");
+                    } else {
+                        $this->error("❌ AliExpress API Error [{$errorCode}]: {$errorMsg}");
+                    }
+                    
+                    Log::error('AliExpress API Error Response', [
+                        'error_code' => $errorCode,
+                        'error_message' => $errorMsg,
+                        'full_response' => $errorResponse
+                    ]);
+                    break;
+                }
+                
+                $responseData = $listResponse['aliexpress_trade_seller_orderlist_get_response']['result'] ?? [];
+                $ordersList = $responseData['target_list']['aeop_order_item_dto'] ?? [];
+                $totalPages = $responseData['total_page'] ?? 1;
+                $totalCount = $responseData['total_count'] ?? 0;
+                
+                if ($currentPage === 1) {
+                    $this->info("📊 Total orders available: {$totalCount} across {$totalPages} page(s)");
+                }
+                
+                if (!empty($ordersList)) {
+                    $allOrdersList = array_merge($allOrdersList, $ordersList);
+                    $this->info("📄 Fetched page {$currentPage}/{$totalPages} - Found " . count($ordersList) . " orders (Total so far: " . count($allOrdersList) . ")");
+                }
+                
+                // Check if there are more pages
+                if ($currentPage >= $totalPages || empty($ordersList)) {
+                    $hasMorePages = false;
+                } else {
+                    $currentPage++;
+                }
+            }
 
-            $ordersList = $listResponse['aliexpress_trade_seller_orderlist_get_response']['result']['target_list']['aeop_order_item_dto'] ?? [];
-
-            if (empty($ordersList)) {
-                $this->warn('⚠️ No orders found.');
-                Log::warning('AliExpress order sync: No orders found', ['response' => $listResponse]);
+            if (empty($allOrdersList)) {
+                $this->warn("⚠️ No orders found in the last {$days} days.");
+                Log::info('AliExpress order sync: No orders found', [
+                    'response_structure' => array_keys($listResponse ?? []),
+                    'days' => $days,
+                    'store_id' => $storeId,
+                    'raw_response_sample' => isset($listResponse) ? json_encode(array_slice($listResponse, 0, 3)) : null
+                ]);
                 return 0;
             }
+            
+            $this->info("✅ Found " . count($allOrdersList) . " total orders to process.");
+            $ordersList = $allOrdersList;
 
             $count = 0;
 
