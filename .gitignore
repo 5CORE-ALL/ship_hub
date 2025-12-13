@@ -17,3 +17,9 @@ yarn-error.log
 /.vscode
 *.log
 
+# Ignore log files that may contain sensitive data
+app/Libraries/**/logs/
+app-10-2025/Libraries/**/logs/
+**/*.log
+**/logs/
+
