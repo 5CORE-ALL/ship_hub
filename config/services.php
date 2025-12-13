@@ -64,9 +64,9 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
     'google' => [
-        'client_id'     => env('GOOGLE_CLIENT_ID', '[REMOVED_CLIENT_ID]'),
-        'client_secret' => env('GOOGLE_CLIENT_SECRET', '[REMOVED_SECRET]'),
-        'redirect'      => env('GOOGLE_REDIRECT', 'https://fdcd301b5647.ngrok-free.app/auth/google/callback'),
+        'client_id'     => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect'      => env('GOOGLE_REDIRECT'),
     ],
     'macy' => [
         'client_id' => env('MACY_CLIENT_ID'),
