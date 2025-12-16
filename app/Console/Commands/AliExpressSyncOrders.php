@@ -91,10 +91,9 @@ class AliExpressSyncOrders extends Command
                             'error_response' => $errorResponse
                         ]);
                         
-                        // Clear the access token to force refresh
+                        // Set expires_at to past to force refresh (don't set access_token to null as it may not allow NULL)
                         DB::table('integrations')->where('store_id', $storeId)->update([
-                            'access_token' => null,
-                            'expires_at' => null,
+                            'expires_at' => now()->subDay(), // Set to past to force refresh
                         ]);
                         
                         // Retry getting orders (this will trigger token refresh)
@@ -156,10 +155,9 @@ class AliExpressSyncOrders extends Command
                             'error_response' => $errorResponse
                         ]);
                         
-                        // Clear the access token to force refresh
+                        // Set expires_at to past to force refresh (don't set access_token to null as it may not allow NULL)
                         DB::table('integrations')->where('store_id', $storeId)->update([
-                            'access_token' => null,
-                            'expires_at' => null,
+                            'expires_at' => now()->subDay(), // Set to past to force refresh
                         ]);
                         
                         // Retry getting orders (this will trigger token refresh)

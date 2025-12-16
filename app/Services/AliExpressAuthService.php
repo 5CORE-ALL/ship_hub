@@ -239,11 +239,10 @@ public function getOrders($days = 5, $currentPage = 1, $pageSize = 50, $storeId 
 {
     try {
         // 1️⃣ Get a fresh access token dynamically
-        // If forceRefresh is true, clear the existing token to force refresh
+        // If forceRefresh is true, set expires_at to past to force refresh (don't set access_token to null as it may not allow NULL)
         if ($forceRefresh) {
             DB::table('integrations')->where('store_id', $storeId)->update([
-                'access_token' => null,
-                'expires_at' => null,
+                'expires_at' => now()->subDay(), // Set to past to force refresh
             ]);
         }
         
