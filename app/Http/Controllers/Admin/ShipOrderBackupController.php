@@ -171,7 +171,7 @@ public function getShippedOrders(Request $request)
                         'shipper_name'     => $order->shipper_name ?? 'Your Warehouse Name',
                         'shipper_phone'    => $order->shipper_phone ?? '0000000000',
                         'shipper_company'  => $order->shipper_company ?? 'Warehouse Inc',
-                        'shipper_street'   => $order->shipper_address ?? '123 Main Street',
+                        'shipper_street'   => $order->shipper_street ?? '123 Main Street',
                         'shipper_city'     => $order->shipper_city ?? 'Los Angeles',
                         'shipper_state'    => $order->shipper_state ?? 'CA',
                         'shipper_postal'   => $order->shipper_postal ?? '90001',

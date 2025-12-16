@@ -788,7 +788,7 @@ public function createPrintLabels(Request $request)
                 'recipient_city'    => $order->ship_city ?? 'New York',
                 'recipient_state'   => $order->ship_state ?? 'NY',
                 'recipient_postal'  => $order->ship_postal_code ?? '10001',
-                'recipient_country' => (strtolower(trim($order->shipper_country)) === 'united states') ? 'US' : strtoupper(substr($order->shipper_country ?? 'US', 0, 2)),
+                'recipient_country' => (strtolower(trim($order->ship_country)) === 'united states') ? 'US' : strtoupper(substr($order->ship_country ?? 'US', 0, 2)),
                 'residential'       => $order->recipient_company ? false : true,
                 'service_type'      => $validated['service_code'],
                 'packaging_type'    => $validated['package_type'],
