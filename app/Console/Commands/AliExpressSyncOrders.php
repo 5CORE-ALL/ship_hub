@@ -83,21 +83,63 @@ class AliExpressSyncOrders extends Command
                     $errorMsg = $errorResponse['msg'] ?? $errorResponse['error_message'] ?? 'Unknown API error';
                     $errorCode = $errorResponse['code'] ?? $errorResponse['error_code'] ?? 'Unknown';
                     
+                    // Special handling for IllegalAccessToken - force token refresh and retry
+                    if ($errorCode === 'IllegalAccessToken') {
+                        $this->warn("⚠️  Access token is invalid, forcing refresh and retrying...");
+                        Log::warning('AliExpress IllegalAccessToken detected, forcing token refresh', [
+                            'store_id' => $storeId,
+                            'error_response' => $errorResponse
+                        ]);
+                        
+                        // Clear the access token to force refresh
+                        DB::table('integrations')->where('store_id', $storeId)->update([
+                            'access_token' => null,
+                            'expires_at' => null,
+                        ]);
+                        
+                        // Retry getting orders (this will trigger token refresh)
+                        $rawListResponse = $aliService->getOrders($days, $currentPage, 50, $storeId, true);
+                        $listResponse = json_decode(json_encode($rawListResponse), true, 1024);
+                        
+                        // Check if retry was successful
+                        if (isset($listResponse['error']) || isset($listResponse['aliexpress_trade_seller_orderlist_get_response']['error_response'])) {
+                            $this->error("❌ AliExpress API Error [{$errorCode}]: {$errorMsg}");
+                            $this->warn("💡 Token refresh may have failed. Please check:");
+                            $this->warn("   - Refresh token is valid in the database");
+                            $this->warn("   - App credentials (ALIEXPRESS_APP_KEY, ALIEXPRESS_APP_SECRET) are correct");
+                            Log::error('AliExpress API Error Response after retry', [
+                                'error_code' => $errorCode,
+                                'error_message' => $errorMsg,
+                                'full_response' => $listResponse
+                            ]);
+                            break;
+                        } else {
+                            $this->info("✅ Token refreshed successfully, retrying request...");
+                            // Continue processing with the refreshed token response
+                        }
+                    }
+                    
                     // Special handling for IP whitelist error
                     if ($errorCode === 'AppWhiteIpLimit') {
                         $this->error("❌ AliExpress IP Whitelist Error: The server IP address is not whitelisted in AliExpress app settings.");
                         $this->warn("💡 Solution: Add your server's IP address to the AliExpress app whitelist in the AliExpress Open Platform.");
                         $this->warn("   Current server IP needs to be added to: AliExpress Open Platform > Your App > Security Settings > IP Whitelist");
-                    } else {
+                        Log::error('AliExpress API Error Response', [
+                            'error_code' => $errorCode,
+                            'error_message' => $errorMsg,
+                            'full_response' => $errorResponse
+                        ]);
+                        break;
+                    } elseif ($errorCode !== 'IllegalAccessToken') {
+                        // Only log other errors (IllegalAccessToken is handled above)
                         $this->error("❌ AliExpress API Error [{$errorCode}]: {$errorMsg}");
+                        Log::error('AliExpress API Error Response', [
+                            'error_code' => $errorCode,
+                            'error_message' => $errorMsg,
+                            'full_response' => $errorResponse
+                        ]);
+                        break;
                     }
-                    
-                    Log::error('AliExpress API Error Response', [
-                        'error_code' => $errorCode,
-                        'error_message' => $errorMsg,
-                        'full_response' => $errorResponse
-                    ]);
-                    break;
                 }
                 
                 // Also check for direct error_response (not nested)
@@ -106,19 +148,59 @@ class AliExpressSyncOrders extends Command
                     $errorMsg = $errorResponse['msg'] ?? $errorResponse['error_message'] ?? 'Unknown API error';
                     $errorCode = $errorResponse['code'] ?? $errorResponse['error_code'] ?? 'Unknown';
                     
-                    if ($errorCode === 'AppWhiteIpLimit') {
+                    // Special handling for IllegalAccessToken - force token refresh and retry
+                    if ($errorCode === 'IllegalAccessToken') {
+                        $this->warn("⚠️  Access token is invalid, forcing refresh and retrying...");
+                        Log::warning('AliExpress IllegalAccessToken detected (direct), forcing token refresh', [
+                            'store_id' => $storeId,
+                            'error_response' => $errorResponse
+                        ]);
+                        
+                        // Clear the access token to force refresh
+                        DB::table('integrations')->where('store_id', $storeId)->update([
+                            'access_token' => null,
+                            'expires_at' => null,
+                        ]);
+                        
+                        // Retry getting orders (this will trigger token refresh)
+                        $rawListResponse = $aliService->getOrders($days, $currentPage, 50, $storeId, true);
+                        $listResponse = json_decode(json_encode($rawListResponse), true, 1024);
+                        
+                        // Check if retry was successful
+                        if (isset($listResponse['error']) || isset($listResponse['error_response'])) {
+                            $this->error("❌ AliExpress API Error [{$errorCode}]: {$errorMsg}");
+                            $this->warn("💡 Token refresh may have failed. Please check:");
+                            $this->warn("   - Refresh token is valid in the database");
+                            $this->warn("   - App credentials (ALIEXPRESS_APP_KEY, ALIEXPRESS_APP_SECRET) are correct");
+                            Log::error('AliExpress API Error Response after retry', [
+                                'error_code' => $errorCode,
+                                'error_message' => $errorMsg,
+                                'full_response' => $listResponse
+                            ]);
+                            break;
+                        } else {
+                            $this->info("✅ Token refreshed successfully, retrying request...");
+                            // Continue processing with the refreshed token response
+                        }
+                    } elseif ($errorCode === 'AppWhiteIpLimit') {
                         $this->error("❌ AliExpress IP Whitelist Error: The server IP address is not whitelisted in AliExpress app settings.");
                         $this->warn("💡 Solution: Add your server's IP address to the AliExpress app whitelist in the AliExpress Open Platform.");
-                    } else {
+                        Log::error('AliExpress API Error Response', [
+                            'error_code' => $errorCode,
+                            'error_message' => $errorMsg,
+                            'full_response' => $errorResponse
+                        ]);
+                        break;
+                    } elseif ($errorCode !== 'IllegalAccessToken') {
+                        // Only log other errors (IllegalAccessToken is handled above)
                         $this->error("❌ AliExpress API Error [{$errorCode}]: {$errorMsg}");
+                        Log::error('AliExpress API Error Response', [
+                            'error_code' => $errorCode,
+                            'error_message' => $errorMsg,
+                            'full_response' => $errorResponse
+                        ]);
+                        break;
                     }
-                    
-                    Log::error('AliExpress API Error Response', [
-                        'error_code' => $errorCode,
-                        'error_message' => $errorMsg,
-                        'full_response' => $errorResponse
-                    ]);
-                    break;
                 }
                 
                 $responseData = $listResponse['aliexpress_trade_seller_orderlist_get_response']['result'] ?? [];

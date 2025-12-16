@@ -13,9 +13,17 @@
             </p>
         </div>
         @php
-            $isLocalhost = in_array(request()->getHost(), ['localhost', '127.0.0.1']) || 
-                          str_contains(request()->getHost(), 'localhost') ||
-                          config('app.env') === 'local';
+            // Check if running on localhost/development environment
+            // Show login form only on localhost/development, hide on production
+            $host = request()->getHost();
+            $isProduction = app()->environment('production');
+            $isLocalhost = !$isProduction && (
+                in_array($host, ['localhost', '127.0.0.1']) || 
+                str_contains($host, 'localhost') ||
+                str_contains($host, '.local') ||
+                str_contains($host, '.test') ||
+                app()->environment('local', 'testing')
+            );
         @endphp
 
         @if ($isLocalhost)

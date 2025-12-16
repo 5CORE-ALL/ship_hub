@@ -126,6 +126,8 @@ class AliExpressAuthService
     }
 
     // If token exists and not expired, return it
+    // Note: We still check expiration, but if the token is invalid, the API will return IllegalAccessToken
+    // which will trigger a forced refresh in getOrders() and other methods
     if (!empty($integration->access_token) && $integration->expires_at && Carbon::parse($integration->expires_at)->gt(now())) {
         return $integration->access_token;
     }
@@ -144,7 +146,20 @@ class AliExpressAuthService
             'store_id' => $storeId,
             'response' => $data,
         ]);
-// dd($data['access_token']);
+
+        // Check for error in response
+        if (isset($data['error_response'])) {
+            $errorCode = $data['error_response']['code'] ?? 'Unknown';
+            $errorMsg = $data['error_response']['msg'] ?? $data['error_response']['error_message'] ?? 'Unknown error';
+            
+            Log::error("AliExpress token refresh failed for store {$storeId}", [
+                'error_code' => $errorCode,
+                'error_message' => $errorMsg,
+                'response' => $data
+            ]);
+            return null;
+        }
+
         if (!empty($data['access_token'])) {
             // Save token with 6 months expiry
             DB::table('integrations')->where('store_id', $storeId)->update([
@@ -156,7 +171,7 @@ class AliExpressAuthService
             return $data['access_token'];
         }
 
-        Log::warning("AliExpress token refresh failed for store {$storeId}", [
+        Log::warning("AliExpress token refresh failed for store {$storeId} - no access_token in response", [
             'response' => $data
         ]);
         return null;
@@ -220,11 +235,19 @@ class AliExpressAuthService
 //         return ['error' => $e->getMessage()];
 //     }
 // }
-public function getOrders($days = 5, $currentPage = 1, $pageSize = 50)
+public function getOrders($days = 5, $currentPage = 1, $pageSize = 50, $storeId = 9, $forceRefresh = false)
 {
     try {
         // 1️⃣ Get a fresh access token dynamically
-        $tokenData = $this->getAccessToken(9);
+        // If forceRefresh is true, clear the existing token to force refresh
+        if ($forceRefresh) {
+            DB::table('integrations')->where('store_id', $storeId)->update([
+                'access_token' => null,
+                'expires_at' => null,
+            ]);
+        }
+        
+        $tokenData = $this->getAccessToken($storeId);
         if (!isset($tokenData)) {
             throw new \Exception("Failed to get access token");
         }
@@ -256,7 +279,39 @@ public function getOrders($days = 5, $currentPage = 1, $pageSize = 50)
         // 7️⃣ Decode JSON response
         $data = json_decode($response, true);
 
-        // 8️⃣ Log for debugging
+        // 8️⃣ Check for IllegalAccessToken error and retry with forced refresh
+        if (isset($data['aliexpress_trade_seller_orderlist_get_response']['error_response'])) {
+            $errorResponse = $data['aliexpress_trade_seller_orderlist_get_response']['error_response'];
+            $errorCode = $errorResponse['code'] ?? '';
+            
+            if ($errorCode === 'IllegalAccessToken' && !$forceRefresh) {
+                \Log::warning('AliExpress IllegalAccessToken detected, forcing token refresh and retrying', [
+                    'store_id' => $storeId,
+                    'error_response' => $errorResponse
+                ]);
+                
+                // Force refresh token and retry once
+                return $this->getOrders($days, $currentPage, $pageSize, $storeId, true);
+            }
+        }
+        
+        // Also check for direct error_response
+        if (isset($data['error_response'])) {
+            $errorResponse = $data['error_response'];
+            $errorCode = $errorResponse['code'] ?? '';
+            
+            if ($errorCode === 'IllegalAccessToken' && !$forceRefresh) {
+                \Log::warning('AliExpress IllegalAccessToken detected (direct), forcing token refresh and retrying', [
+                    'store_id' => $storeId,
+                    'error_response' => $errorResponse
+                ]);
+                
+                // Force refresh token and retry once
+                return $this->getOrders($days, $currentPage, $pageSize, $storeId, true);
+            }
+        }
+
+        // 9️⃣ Log for debugging
         \Log::info('AliExpress Orders Response', [
             'params'   => $params,
             'response' => $data,
