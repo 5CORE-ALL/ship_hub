@@ -12,18 +12,28 @@ use Carbon\Carbon;
 use App\Services\EbayOrderService;
 class EbayOrderSync extends Command
 {
-    protected $signature = 'ebay:sync-orders';
-    protected $description = 'Fetch and sync eBay orders and items for all eBay stores';
+    protected $signature = 'ebay:sync-orders {--store= : Sync orders for a specific store ID only}';
+    protected $description = 'Fetch and sync eBay orders and items for all eBay stores (or a specific store if --store is provided)';
 
     public function handle()
     {
-        $this->info('🔹 Starting eBay order sync for all stores...');
+        $storeId = $this->option('store');
+        
+        if ($storeId) {
+            $this->info("🔹 Starting eBay order sync for store ID: {$storeId}...");
+        } else {
+            $this->info('🔹 Starting eBay order sync for all stores...');
+        }
+        
         $stores = DB::table('stores as s')
             ->join('sales_channels as sc', 's.sales_channel_id', '=', 'sc.id')
             ->join('marketplaces as m', 's.marketplace_id', '=', 'm.id')
             ->leftJoin('integrations as i', 's.id', '=', 'i.store_id')
             ->where('sc.platform', 'ebay')
             ->where('s.id', '!=', 4) // Exclude store_id 4, include all others (including those without integrations)
+            ->when($storeId, function ($query) use ($storeId) {
+                return $query->where('s.id', $storeId);
+            })
             ->select(
                 's.id as store_id',
                 's.name as store_name',
