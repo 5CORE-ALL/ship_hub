@@ -717,6 +717,7 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
     $mergedFilePath = $labelDir . "/" . $mergedFileName;
 
     $pdfFiles = [];
+    $orderIds = []; // Collect order IDs for print count update
 
     // ✅ Include ShipHub PDFs if 'shiphub' is selected
     if (in_array('shiphub', $modes)) {
@@ -730,14 +731,9 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
                 $localPath = storage_path("app/public/labels/" . basename($shipment->label_url));
                 if (file_exists($localPath)) {
                     $pdfFiles[] = $localPath;
-
-                    \App\Models\Order::where("id", $shipment->order_id)->update([
-                    // Update print count only when printing (type='p'), set to 1, not increment
-                    if ($type === 'p') {
-                        \App\Models\Order::where("id", $shipment->order_id)->update([
-                            "print_count" => 1,
-                            "printing_status" => 2,
-                        ]);
+                    // Collect order IDs for later update (only when printing)
+                    if ($type === 'p' && $shipment->order_id) {
+                        $orderIds[] = $shipment->order_id;
                     }
                 }
             }
@@ -773,6 +769,15 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
         $singleFile = basename($pdfFiles[0]);
         $singleUrl = asset("storage/labels/" . $singleFile);
         \Log::info("🟢 Single PDF found — returning URL: " . $singleUrl);
+        
+        // Update print count only when printing (type='p'), set to 1, not increment
+        if ($type === 'p' && !empty($orderIds)) {
+            \App\Models\Order::whereIn("id", array_unique($orderIds))->update([
+                "print_count" => 1,
+                "printing_status" => 2,
+            ]);
+        }
+        
         return $singleUrl;
     }
 
@@ -786,6 +791,15 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
     if ($returnCode === 0 && file_exists($mergedFilePath)) {
         $mergedUrl = asset("storage/labels/" . $mergedFileName);
         \Log::info("✅ Merged PDF created successfully: " . $mergedUrl);
+        
+        // Update print count only when printing (type='p'), set to 1, not increment
+        if ($type === 'p' && !empty($orderIds)) {
+            \App\Models\Order::whereIn("id", array_unique($orderIds))->update([
+                "print_count" => 1,
+                "printing_status" => 2,
+            ]);
+        }
+        
         return $mergedUrl;
     }
 
