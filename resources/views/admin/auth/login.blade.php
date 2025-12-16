@@ -13,11 +13,11 @@
             </p>
         </div>
         @php
-            // Check if running on localhost/development environment
-            // Show login form only on localhost/development, hide on production
+            // Check if running on production server (ship.5coremanagement.com)
+            // Show login form only on local server, hide on production (only Google login)
             $host = request()->getHost();
-            $isProduction = app()->environment('production');
-            $isLocalhost = !$isProduction && (
+            $isProductionServer = $host === 'ship.5coremanagement.com';
+            $isLocalhost = !$isProductionServer && (
                 in_array($host, ['localhost', '127.0.0.1']) || 
                 str_contains($host, 'localhost') ||
                 str_contains($host, '.local') ||
