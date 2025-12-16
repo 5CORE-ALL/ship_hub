@@ -182,18 +182,46 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
 
         Log::info('TikTok Authorized Shops Fetched', [
             'store_id' => $storeId,
-            'shops'    => $response,
+            'response' => $response,
+            'response_type' => gettype($response),
+            'response_keys' => is_array($response) ? array_keys($response) : 'not_array',
         ]);
 
-        if (!empty($response['shops'])) {
-            $shopCipher = $response['shops'][0]['cipher'] ?? null;
+        // Handle different response formats
+        $shops = null;
+        if (is_array($response)) {
+            // Try different possible response structures
+            $shops = $response['shops'] ?? $response['data']['shops'] ?? $response['data'] ?? $response;
+        }
+
+        if (is_array($shops) && !empty($shops)) {
+            // Handle both array of shops and single shop object
+            $shop = is_array($shops) && isset($shops[0]) ? $shops[0] : $shops;
+            $shopCipher = $shop['cipher'] ?? $shop['shop_cipher'] ?? $shop['id'] ?? null;
 
             if ($shopCipher) {
                 Integration::where('store_id', $storeId)
                     ->update(['shop_cipher' => $shopCipher]);
 
+                Log::info('TikTok Shop Cipher Saved', [
+                    'store_id' => $storeId,
+                    'shop_cipher' => $shopCipher,
+                ]);
+
                 return $shopCipher;
+            } else {
+                Log::warning('TikTok Shop Cipher Not Found in Response', [
+                    'store_id' => $storeId,
+                    'shop_data' => $shop,
+                    'response' => $response,
+                ]);
             }
+        } else {
+            Log::warning('TikTok No Shops Found in Response', [
+                'store_id' => $storeId,
+                'response' => $response,
+                'shops_extracted' => $shops,
+            ]);
         }
 
         return null;
@@ -201,6 +229,9 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
         Log::error('TikTok Get Authorized Shop Cipher Failed', [
             'store_id' => $storeId,
             'error'    => $e->getMessage(),
+            'trace'     => $e->getTraceAsString(),
+            'file'      => $e->getFile(),
+            'line'      => $e->getLine(),
         ]);
         return null;
     }

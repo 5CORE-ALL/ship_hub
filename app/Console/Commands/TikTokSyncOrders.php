@@ -46,8 +46,16 @@ class TikTokSyncOrders extends Command
             $shopCipher = $tiktok->getAuthorizedShopCipher($storeId, $accessToken);
             if (!$shopCipher) {
                 $this->error('❌ Failed to get TikTok shop cipher.');
+                $this->warn('💡 Check logs for detailed error information.');
+                $this->warn('💡 The API response structure might be different than expected.');
+                Log::error('TikTok sync: Shop cipher retrieval failed', [
+                    'store_id' => $storeId,
+                    'access_token_present' => !empty($accessToken),
+                ]);
                 return Command::FAILURE;
             }
+            
+            $this->info("✅ Shop cipher retrieved: {$shopCipher}");
 
             // 3️⃣ Fetch orders list
             $response = $tiktok->fetchOrders($accessToken, $shopCipher);
