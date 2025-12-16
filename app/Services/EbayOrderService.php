@@ -177,39 +177,48 @@ public function updateAfterLabelCreate(
     {
         $integration = DB::table('integrations')->where('store_id', $storeId)->first();
 
-        if (!$integration || !$integration->access_token) {
+        if (!$integration) {
+            Log::warning("No integration found for store_id {$storeId}");
             return null;
         }
-        if ($integration->expires_at && Carbon::parse($integration->expires_at)->gt(now())) {
-           return $integration->access_token;
-         }
 
-            $response = Http::asForm()->withBasicAuth($integration->app_id, $integration->app_secret)
-                ->post('https://api.ebay.com/identity/v1/oauth2/token', [
-                    'grant_type'    => 'refresh_token',
-                    'refresh_token' => $integration->refresh_token,
-                    'scope' => 'https://api.ebay.com/oauth/api_scope/sell.analytics.readonly https://api.ebay.com/oauth/api_scope/sell.inventory.readonly https://api.ebay.com/oauth/api_scope/sell.fulfillment'
-                ]);
-                   Log::info('eBay token refresh response', [
+        // Check if we have required credentials for token refresh
+        if (!$integration->refresh_token || !$integration->app_id || !$integration->app_secret) {
+            Log::warning("Missing credentials for store_id {$storeId}. Required: refresh_token, app_id, app_secret");
+            return null;
+        }
+
+        // If access_token exists and is still valid, return it
+        if ($integration->access_token && $integration->expires_at && Carbon::parse($integration->expires_at)->gt(now())) {
+            return $integration->access_token;
+        }
+
+        // Token expired or missing, try to refresh
+        $response = Http::asForm()->withBasicAuth($integration->app_id, $integration->app_secret)
+            ->post('https://api.ebay.com/identity/v1/oauth2/token', [
+                'grant_type'    => 'refresh_token',
+                'refresh_token' => $integration->refresh_token,
+                'scope' => 'https://api.ebay.com/oauth/api_scope/sell.analytics.readonly https://api.ebay.com/oauth/api_scope/sell.inventory.readonly https://api.ebay.com/oauth/api_scope/sell.fulfillment'
+            ]);
+
+        Log::info('eBay token refresh response', [
+            'store_id' => $storeId,
             'status' => $response->status(),
             'body'   => $response->body(),
         ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                DB::table('integrations')->where('store_id', $storeId)->update([
-                    'access_token' => $data['access_token'],
-                    'expires_at'   => now()->addSeconds($data['expires_in']),
-                ]);
+        if ($response->successful()) {
+            $data = $response->json();
+            DB::table('integrations')->where('store_id', $storeId)->update([
+                'access_token' => $data['access_token'],
+                'expires_at'   => now()->addSeconds($data['expires_in']),
+            ]);
 
-                return $data['access_token'];
-            } else {
-                Log::warning("❌ Refresh token invalid for store {$storeId}: " . $response->body());
-                return null;
-            }
-        // }
-
-        return $integration->access_token;
+            return $data['access_token'];
+        } else {
+            Log::warning("❌ Refresh token invalid for store {$storeId}: " . $response->body());
+            return null;
+        }
     }
     public function getValidTrackingRate(int $storeId): array
    {
