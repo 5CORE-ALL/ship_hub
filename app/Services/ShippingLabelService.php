@@ -731,11 +731,14 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
                 if (file_exists($localPath)) {
                     $pdfFiles[] = $localPath;
 
-                    // Update print count for ShipHub orders
                     \App\Models\Order::where("id", $shipment->order_id)->update([
-                        "print_count" => DB::raw("print_count + 1"),
-                        "printing_status" => $type === 'p' ? 2 : DB::raw("printing_status"),
-                    ]);
+                    // Update print count only when printing (type='p'), set to 1, not increment
+                    if ($type === 'p') {
+                        \App\Models\Order::where("id", $shipment->order_id)->update([
+                            "print_count" => 1,
+                            "printing_status" => 2,
+                        ]);
+                    }
                 }
             }
         }
@@ -1027,11 +1030,13 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
         // Single PDF → just return original
         if (count($pdfFiles) === 1) {
             $singleFile = basename($pdfFiles[0]);
-            // Update print info for the single order
-            \App\Models\Order::whereIn("id", $orderIds)->update([
-                "print_count" => DB::raw("print_count + 1"),
-                "printing_status" => $type === 'p' ? 2 : DB::raw("printing_status"),
-            ]);
+            // Update print info only when printing (type='p'), set to 1, not increment
+            if ($type === 'p') {
+                \App\Models\Order::whereIn("id", $orderIds)->update([
+                    "print_count" => 1,
+                    "printing_status" => 2,
+                ]);
+            }
 
             return asset("storage/labels/" . $singleFile);
         }
@@ -1090,11 +1095,13 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
             throw new \Exception("Failed to create merged PDF file");
         }
 
-        // Update print info for all orders
-        \App\Models\Order::whereIn("id", $orderIds)->update([
-            "print_count" => DB::raw("print_count + 1"),
-            "printing_status" => $type === 'p' ? 2 : DB::raw("printing_status"),
-        ]);
+        // Update print info only when printing (type='p'), set to 1, not increment
+        if ($type === 'p') {
+            \App\Models\Order::whereIn("id", $orderIds)->update([
+                "print_count" => 1,
+                "printing_status" => 2,
+            ]);
+        }
 
         $mergedUrl = asset("storage/labels/" . $mergedFileName);
         \Log::info("✅ Merged PDF created successfully using FPDI: " . $mergedUrl);
