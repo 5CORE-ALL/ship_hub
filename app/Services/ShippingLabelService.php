@@ -764,22 +764,31 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
         return null;
     }
 
-    // ✅ Only one PDF → return original URL
-    if (count($pdfFiles) === 1) {
-        $singleFile = basename($pdfFiles[0]);
-        $singleUrl = asset("storage/labels/" . $singleFile);
-        \Log::info("🟢 Single PDF found — returning URL: " . $singleUrl);
-        
-        // Update print count only when printing (type='p'), set to 1, not increment
-        if ($type === 'p' && !empty($orderIds)) {
-            \App\Models\Order::whereIn("id", array_unique($orderIds))->update([
-                "print_count" => 1,
-                "printing_status" => 2,
-            ]);
+        // ✅ Only one PDF → return original URL
+        if (count($pdfFiles) === 1) {
+            $singleFile = basename($pdfFiles[0]);
+            $singleUrl = asset("storage/labels/" . $singleFile);
+            \Log::info("🟢 Single PDF found — returning URL: " . $singleUrl);
+            
+            // Update print count only when printing (type='p'), set to 1 only if not already printed
+            if ($type === 'p' && !empty($orderIds)) {
+                \App\Models\Order::whereIn("id", array_unique($orderIds))
+                    ->where(function($query) {
+                        $query->whereNull('print_count')
+                              ->orWhere('print_count', 0);
+                    })
+                    ->update([
+                        "print_count" => 1,
+                        "printing_status" => 2,
+                    ]);
+                // Update printing_status for all orders, even if already printed
+                \App\Models\Order::whereIn("id", array_unique($orderIds))->update([
+                    "printing_status" => 2,
+                ]);
+            }
+            
+            return $singleUrl;
         }
-        
-        return $singleUrl;
-    }
 
     // ✅ Merge multiple PDFs using Ghostscript
     $gsPath = '/usr/bin/gs';
@@ -792,10 +801,19 @@ public function mergeLabelsPdf_v4(string $type, array $modes, string $filterDate
         $mergedUrl = asset("storage/labels/" . $mergedFileName);
         \Log::info("✅ Merged PDF created successfully: " . $mergedUrl);
         
-        // Update print count only when printing (type='p'), set to 1, not increment
+        // Update print count only when printing (type='p'), set to 1 only if not already printed
         if ($type === 'p' && !empty($orderIds)) {
+            \App\Models\Order::whereIn("id", array_unique($orderIds))
+                ->where(function($query) {
+                    $query->whereNull('print_count')
+                          ->orWhere('print_count', 0);
+                })
+                ->update([
+                    "print_count" => 1,
+                    "printing_status" => 2,
+                ]);
+            // Update printing_status for all orders, even if already printed
             \App\Models\Order::whereIn("id", array_unique($orderIds))->update([
-                "print_count" => 1,
                 "printing_status" => 2,
             ]);
         }
@@ -1044,10 +1062,19 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
         // Single PDF → just return original
         if (count($pdfFiles) === 1) {
             $singleFile = basename($pdfFiles[0]);
-            // Update print info only when printing (type='p'), set to 1, not increment
+            // Update print info only when printing (type='p'), set to 1 only if not already printed
             if ($type === 'p') {
+                \App\Models\Order::whereIn("id", $orderIds)
+                    ->where(function($query) {
+                        $query->whereNull('print_count')
+                              ->orWhere('print_count', 0);
+                    })
+                    ->update([
+                        "print_count" => 1,
+                        "printing_status" => 2,
+                    ]);
+                // Update printing_status for all orders, even if already printed
                 \App\Models\Order::whereIn("id", $orderIds)->update([
-                    "print_count" => 1,
                     "printing_status" => 2,
                 ]);
             }
@@ -1109,10 +1136,19 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
             throw new \Exception("Failed to create merged PDF file");
         }
 
-        // Update print info only when printing (type='p'), set to 1, not increment
+        // Update print info only when printing (type='p'), set to 1 only if not already printed
         if ($type === 'p') {
+            \App\Models\Order::whereIn("id", $orderIds)
+                ->where(function($query) {
+                    $query->whereNull('print_count')
+                          ->orWhere('print_count', 0);
+                })
+                ->update([
+                    "print_count" => 1,
+                    "printing_status" => 2,
+                ]);
+            // Update printing_status for all orders, even if already printed
             \App\Models\Order::whereIn("id", $orderIds)->update([
-                "print_count" => 1,
                 "printing_status" => 2,
             ]);
         }
