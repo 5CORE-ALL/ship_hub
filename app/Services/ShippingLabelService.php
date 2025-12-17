@@ -1118,7 +1118,7 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
         }
 
         // Check if we have any pages added
-        if ($pdf->getNumPages() === 0) {
+        if ($pdf->PageNo() === 0) {
             \Log::error("No valid pages found in any PDF files");
             throw new \Exception("Failed to process PDF files. No valid pages found.");
         }
