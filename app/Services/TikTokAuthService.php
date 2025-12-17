@@ -166,12 +166,19 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
     $integration = Integration::where('store_id', $storeId)->first();
 
     if ($integration && !empty($integration->shop_cipher)) {
+        Log::info('TikTok Shop Cipher Retrieved from Database', [
+            'store_id' => $storeId,
+            'shop_cipher' => $integration->shop_cipher,
+        ]);
         return $integration->shop_cipher;
     }
 
     if (!$accessToken) {
         $accessToken = $this->getAccessToken($storeId);
         if (!$accessToken) {
+            Log::error('TikTok Get Shop Cipher: No access token available', [
+                'store_id' => $storeId,
+            ]);
             return null;
         }
     }
@@ -180,55 +187,132 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
         $this->client->setAccessToken($accessToken);
         $response = $this->client->Authorization->getAuthorizedShop();
 
-        Log::info('TikTok Authorized Shops Fetched', [
+        Log::info('TikTok Authorized Shops API Response', [
             'store_id' => $storeId,
             'response' => $response,
             'response_type' => gettype($response),
             'response_keys' => is_array($response) ? array_keys($response) : 'not_array',
+            'response_json' => json_encode($response, JSON_PRETTY_PRINT),
         ]);
 
-        // Handle different response formats
+        // The TikTok client library returns $json['data'] from the API response
+        // So response should be: { "shops": [...] } or directly [...]
         $shops = null;
+        
         if (is_array($response)) {
-            // Try different possible response structures
-            $shops = $response['shops'] ?? $response['data']['shops'] ?? $response['data'] ?? $response;
+            // Check if response has 'shops' key (most common structure)
+            if (isset($response['shops']) && is_array($response['shops'])) {
+                $shops = $response['shops'];
+            }
+            // Check if response is directly an array of shops
+            elseif (isset($response[0]) && is_array($response[0])) {
+                $shops = $response;
+            }
+            // Check nested data structure (just in case)
+            elseif (isset($response['data'])) {
+                if (is_array($response['data']['shops'] ?? null)) {
+                    $shops = $response['data']['shops'];
+                } elseif (is_array($response['data']) && isset($response['data'][0])) {
+                    $shops = $response['data'];
+                }
+            }
+            // If response is a single shop object (not an array)
+            elseif (isset($response['cipher']) || isset($response['shop_cipher']) || isset($response['shop_id'])) {
+                $shops = [$response];
+            }
         }
 
         if (is_array($shops) && !empty($shops)) {
-            // Handle both array of shops and single shop object
-            $shop = is_array($shops) && isset($shops[0]) ? $shops[0] : $shops;
-            $shopCipher = $shop['cipher'] ?? $shop['shop_cipher'] ?? $shop['id'] ?? null;
+            // Get the first shop from the array
+            $shop = $shops[0];
+            
+            // Try multiple possible field names for shop cipher
+            $shopCipher = $shop['cipher'] 
+                ?? $shop['shop_cipher'] 
+                ?? $shop['shop_id'] 
+                ?? $shop['id']
+                ?? null;
 
             if ($shopCipher) {
+                // Save to database for future use
                 Integration::where('store_id', $storeId)
                     ->update(['shop_cipher' => $shopCipher]);
 
-                Log::info('TikTok Shop Cipher Saved', [
+                Log::info('TikTok Shop Cipher Successfully Retrieved and Saved', [
                     'store_id' => $storeId,
                     'shop_cipher' => $shopCipher,
+                    'shop_data' => $shop,
                 ]);
 
                 return $shopCipher;
             } else {
-                Log::warning('TikTok Shop Cipher Not Found in Response', [
+                Log::warning('TikTok Shop Cipher Field Not Found in Shop Data', [
                     'store_id' => $storeId,
                     'shop_data' => $shop,
-                    'response' => $response,
+                    'shop_keys' => is_array($shop) ? array_keys($shop) : 'not_array',
+                    'full_response' => $response,
                 ]);
             }
         } else {
-            Log::warning('TikTok No Shops Found in Response', [
+            Log::warning('TikTok No Shops Found in API Response', [
                 'store_id' => $storeId,
                 'response' => $response,
+                'response_type' => gettype($response),
                 'shops_extracted' => $shops,
+                'shops_type' => gettype($shops),
             ]);
         }
 
         return null;
+    } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
+        $errorMessage = $e->getMessage();
+        
+        // Check for IP allowlist error - rethrow so command can handle it
+        if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+            strpos($errorMessage, 'Access denied') !== false) {
+            Log::error('TikTok IP Allowlist Error', [
+                'store_id' => $storeId,
+                'error' => $errorMessage,
+                'error_code' => $e->getCode(),
+                'solution' => 'Add your server IP address to the TikTok Shop app IP allowlist in the developer portal',
+            ]);
+            // Re-throw so the command can display a helpful message
+            throw $e;
+        } else {
+            Log::error('TikTok Token/Auth Error', [
+                'store_id' => $storeId,
+                'error' => $errorMessage,
+                'error_code' => $e->getCode(),
+            ]);
+        }
+        return null;
+    } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
+        $errorMessage = $e->getMessage();
+        
+        // Check for IP allowlist error - rethrow so command can handle it
+        if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+            strpos($errorMessage, 'Access denied') !== false) {
+            Log::error('TikTok IP Allowlist Error', [
+                'store_id' => $storeId,
+                'error' => $errorMessage,
+                'error_code' => $e->getCode(),
+                'solution' => 'Add your server IP address to the TikTok Shop app IP allowlist in the developer portal',
+            ]);
+            // Re-throw so the command can display a helpful message
+            throw $e;
+        } else {
+            Log::error('TikTok API Response Error', [
+                'store_id' => $storeId,
+                'error' => $errorMessage,
+                'error_code' => $e->getCode(),
+            ]);
+        }
+        return null;
     } catch (\Exception $e) {
-        Log::error('TikTok Get Authorized Shop Cipher Failed', [
+        Log::error('TikTok Get Authorized Shop Cipher Exception', [
             'store_id' => $storeId,
             'error'    => $e->getMessage(),
+            'error_code' => $e->getCode(),
             'trace'     => $e->getTraceAsString(),
             'file'      => $e->getFile(),
             'line'      => $e->getLine(),

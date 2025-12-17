@@ -10,6 +10,8 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use Carbon\Carbon;
 use Exception;
+use EcomPHP\TiktokShop\Errors\TokenException;
+use EcomPHP\TiktokShop\Errors\ResponseException;
 
 class TikTokSyncOrders extends Command
 {
@@ -43,14 +45,72 @@ class TikTokSyncOrders extends Command
             }
 
             // 2️⃣ Get shop cipher
-            $shopCipher = $tiktok->getAuthorizedShopCipher($storeId, $accessToken);
-            if (!$shopCipher) {
+            try {
+                $shopCipher = $tiktok->getAuthorizedShopCipher($storeId, $accessToken);
+                if (!$shopCipher) {
+                    $this->error('❌ Failed to get TikTok shop cipher.');
+                    $this->warn('💡 Check logs for detailed error information.');
+                    $this->warn('💡 The API response structure might be different than expected.');
+                    Log::error('TikTok sync: Shop cipher retrieval failed', [
+                        'store_id' => $storeId,
+                        'access_token_present' => !empty($accessToken),
+                    ]);
+                    return Command::FAILURE;
+                }
+            } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
+                $errorMessage = $e->getMessage();
                 $this->error('❌ Failed to get TikTok shop cipher.');
-                $this->warn('💡 Check logs for detailed error information.');
-                $this->warn('💡 The API response structure might be different than expected.');
-                Log::error('TikTok sync: Shop cipher retrieval failed', [
+                
+                if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+                    strpos($errorMessage, 'Access denied') !== false) {
+                    $this->error('');
+                    $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
+                    $this->error('Your server IP address is not whitelisted in TikTok Shop.');
+                    $this->warn('');
+                    $this->warn('To fix this:');
+                    $this->warn('1. Go to TikTok Shop Developer Portal');
+                    $this->warn('2. Navigate to your app settings');
+                    $this->warn('3. Add your server IP address to the IP allowlist');
+                    $this->warn('4. Save and wait a few minutes for changes to take effect');
+                    $this->warn('');
+                    $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
+                } else {
+                    $this->error('Error: ' . $errorMessage);
+                    $this->warn('💡 Check logs for detailed error information.');
+                }
+                
+                Log::error('TikTok sync: Shop cipher retrieval failed with exception', [
                     'store_id' => $storeId,
-                    'access_token_present' => !empty($accessToken),
+                    'error' => $errorMessage,
+                    'error_code' => $e->getCode(),
+                ]);
+                return Command::FAILURE;
+            } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
+                $errorMessage = $e->getMessage();
+                $this->error('❌ Failed to get TikTok shop cipher.');
+                
+                if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+                    strpos($errorMessage, 'Access denied') !== false) {
+                    $this->error('');
+                    $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
+                    $this->error('Your server IP address is not whitelisted in TikTok Shop.');
+                    $this->warn('');
+                    $this->warn('To fix this:');
+                    $this->warn('1. Go to TikTok Shop Developer Portal');
+                    $this->warn('2. Navigate to your app settings');
+                    $this->warn('3. Add your server IP address to the IP allowlist');
+                    $this->warn('4. Save and wait a few minutes for changes to take effect');
+                    $this->warn('');
+                    $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
+                } else {
+                    $this->error('Error: ' . $errorMessage);
+                    $this->warn('💡 Check logs for detailed error information.');
+                }
+                
+                Log::error('TikTok sync: Shop cipher retrieval failed with exception', [
+                    'store_id' => $storeId,
+                    'error' => $errorMessage,
+                    'error_code' => $e->getCode(),
                 ]);
                 return Command::FAILURE;
             }
