@@ -437,8 +437,9 @@ $(document).ready(function() {
                     Swal.fire({
                         icon: 'error',
                         title: 'Error',
-                        text: response.message || `Failed to generate label${orderIds.length > 1 ? 's' : ''}.`,
-                        confirmButtonText: 'OK'
+                        html: (response.message || `Failed to generate label${orderIds.length > 1 ? 's' : ''}.`).replace(/\n/g, '<br>'),
+                        confirmButtonText: 'OK',
+                        width: '600px'
                     });
                 }
             },
@@ -460,8 +461,9 @@ $(document).ready(function() {
                 Swal.fire({
                     icon: 'error',
                     title: 'Error',
-                    text: msg,
-                    confirmButtonText: 'OK'
+                    html: msg.replace(/\n/g, '<br>'),
+                    confirmButtonText: 'OK',
+                    width: '600px'
                 });
                 console.error('AJAX Error:', xhr);
             }

@@ -1079,32 +1079,97 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
         $mergedFilePath = $labelDir . "/" . $mergedFileName;
 
         $pdfFiles = [];
+        $orderIdToPdfMap = []; // Track which order ID each PDF belongs to
+        $missingOrders = []; // Track orders without valid labels with details
+        $processedOrderIds = []; // Track successfully processed order IDs
 
-        // Collect valid PDFs
+        // Collect valid PDFs - ensure we process ALL order IDs
+        // Get the latest active shipment for each order (in case of multiple shipments)
         $shipments = Shipment::whereIn("order_id", $orderIds)
             ->where("label_status", "active")
             ->where("void_status", "active")
-            ->get();
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->unique('order_id')
+            ->keyBy('order_id'); // Key by order_id for easy lookup
 
         if ($shipments->isEmpty()) {
             \Log::warning("No active shipments found for order IDs: " . implode(', ', $orderIds));
-            throw new \Exception("No active shipments found for the selected orders");
+            throw new \Exception("No active shipments found for the selected orders. Please ensure all orders have active labels.");
         }
 
-        foreach ($shipments as $shipment) {
-            if ($shipment->label_url) {
-                // Handle both full URLs and relative paths
-                $fileName = basename(parse_url($shipment->label_url, PHP_URL_PATH) ?: $shipment->label_url);
-                $localPath = storage_path("app/public/labels/" . $fileName);
-                
-                if (file_exists($localPath) && filesize($localPath) > 0) {
-                    $pdfFiles[] = $localPath;
-                } else {
-                    \Log::warning("Label file not found or empty: {$localPath} for shipment ID: {$shipment->id}");
-                }
-            } else {
-                \Log::warning("Shipment ID {$shipment->id} has no label_url");
+        // Get order numbers for better error messages
+        $orders = \App\Models\Order::whereIn('id', $orderIds)
+            ->select('id', 'order_number')
+            ->get()
+            ->keyBy('id');
+
+        // Validate ALL orders first before proceeding
+        foreach ($orderIds as $orderId) {
+            $order = $orders->get($orderId);
+            $orderNumber = $order ? $order->order_number : "ID: {$orderId}";
+            $shipment = $shipments->get($orderId);
+            
+            if (!$shipment) {
+                $missingOrders[] = [
+                    'order_id' => $orderId,
+                    'order_number' => $orderNumber,
+                    'reason' => 'No active shipment found'
+                ];
+                continue;
             }
+
+            if (!$shipment->label_url) {
+                $missingOrders[] = [
+                    'order_id' => $orderId,
+                    'order_number' => $orderNumber,
+                    'reason' => 'Shipment has no label URL'
+                ];
+                continue;
+            }
+
+            // Handle both full URLs and relative paths
+            $fileName = basename(parse_url($shipment->label_url, PHP_URL_PATH) ?: $shipment->label_url);
+            $localPath = storage_path("app/public/labels/" . $fileName);
+            
+            if (!file_exists($localPath)) {
+                $missingOrders[] = [
+                    'order_id' => $orderId,
+                    'order_number' => $orderNumber,
+                    'reason' => 'Label PDF file not found on server'
+                ];
+                continue;
+            }
+
+            if (filesize($localPath) === 0) {
+                $missingOrders[] = [
+                    'order_id' => $orderId,
+                    'order_number' => $orderNumber,
+                    'reason' => 'Label PDF file is empty'
+                ];
+                continue;
+            }
+
+            // Valid PDF found - add it
+            $pdfFiles[] = $localPath;
+            $orderIdToPdfMap[$orderId] = $localPath;
+            $processedOrderIds[] = $orderId;
+        }
+
+        // If ANY orders are missing, fail the entire operation
+        if (count($missingOrders) > 0) {
+            $missingCount = count($missingOrders);
+            $totalCount = count($orderIds);
+            $missingDetails = array_map(function($item) {
+                return "Order #{$item['order_number']} ({$item['reason']})";
+            }, $missingOrders);
+            
+            $errorMessage = "Cannot proceed with bulk print. {$missingCount} out of {$totalCount} order(s) have issues:\n\n" . 
+                           implode("\n", $missingDetails) . 
+                           "\n\nPlease ensure all selected orders have valid labels before attempting to print.";
+            
+            \Log::error("Bulk print failed - Missing orders: " . json_encode($missingOrders));
+            throw new \Exception($errorMessage);
         }
 
         if (count($pdfFiles) === 0) {
@@ -1116,8 +1181,8 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
         if (count($pdfFiles) === 1) {
             $singleFile = basename($pdfFiles[0]);
             // Update print info only when printing (type='p'), set to 1 only if not already printed
-            if ($type === 'p') {
-                \App\Models\Order::whereIn("id", $orderIds)
+            if ($type === 'p' && !empty($processedOrderIds)) {
+                \App\Models\Order::whereIn("id", $processedOrderIds)
                     ->where(function($query) {
                         $query->whereNull('print_count')
                               ->orWhere('print_count', 0);
@@ -1126,12 +1191,13 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
                         "print_count" => 1,
                         "printing_status" => 2,
                     ]);
-                // Update printing_status for all orders, even if already printed
-                \App\Models\Order::whereIn("id", $orderIds)->update([
+                // Update printing_status for successfully processed orders, even if already printed
+                \App\Models\Order::whereIn("id", $processedOrderIds)->update([
                     "printing_status" => 2,
                 ]);
             }
 
+            \Log::info("✅ Single PDF returned - Order ID: " . implode(', ', $processedOrderIds));
             return asset("storage/labels/" . $singleFile);
         }
 
@@ -1190,8 +1256,9 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
         }
 
         // Update print info only when printing (type='p'), set to 1 only if not already printed
-        if ($type === 'p') {
-            \App\Models\Order::whereIn("id", $orderIds)
+        // Only update for orders that were successfully included in the merge
+        if ($type === 'p' && !empty($processedOrderIds)) {
+            \App\Models\Order::whereIn("id", $processedOrderIds)
                 ->where(function($query) {
                     $query->whereNull('print_count')
                           ->orWhere('print_count', 0);
@@ -1200,14 +1267,14 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
                     "print_count" => 1,
                     "printing_status" => 2,
                 ]);
-            // Update printing_status for all orders, even if already printed
-            \App\Models\Order::whereIn("id", $orderIds)->update([
+            // Update printing_status for all successfully processed orders, even if already printed
+            \App\Models\Order::whereIn("id", $processedOrderIds)->update([
                 "printing_status" => 2,
             ]);
         }
 
         $mergedUrl = asset("storage/labels/" . $mergedFileName);
-        \Log::info("✅ Merged PDF created successfully using FPDI: " . $mergedUrl);
+        \Log::info("✅ Merged PDF created successfully using FPDI: " . $mergedUrl . " - Included all " . count($processedOrderIds) . " orders");
 
         return $mergedUrl;
     } catch (\Exception $e) {
