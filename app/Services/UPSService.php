@@ -92,7 +92,10 @@ class UPSService
                     "ShipTo" => [
                         "Name"    => $params['recipient_name'] ?? "Recipient",
                         "Address" => [
-                            "AddressLine"       => [$params['recipient_address'] ?? "Address"],
+                            "AddressLine"       => $this->buildAddressLines(
+                                $params['recipient_address'] ?? $params['recipient_street'] ?? "Address",
+                                $params['recipient_address2'] ?? $params['recipient_street2'] ?? null
+                            ),
                             "City"              => $params['recipient_city'] ?? "City",
                             "StateProvinceCode" => $params['recipient_state'] ?? "VA",
                             "PostalCode"        => $params['recipient_postal'] ?? "00000",
@@ -248,7 +251,10 @@ public function createShipment($params)
                         "AttentionName" => $params['recipient_attention'] ?? "Recipient Attn",
                         "Phone" => ["Number" => $recipientPhone],
                         "Address" => [
-                            "AddressLine" => [$params['recipient_address'] ?? "123 Recipient St"],
+                            "AddressLine" => $this->buildAddressLines(
+                                $params['recipient_address'] ?? $params['recipient_street'] ?? "123 Recipient St",
+                                $params['recipient_address2'] ?? $params['recipient_street2'] ?? null
+                            ),
                             "City" => $params['recipient_city'] ?? "City",
                             "StateProvinceCode" => $params['recipient_state'] ?? "VA",
                             "PostalCode" => $params['recipient_postal'] ?? "00000",
@@ -535,5 +541,25 @@ public function cancelShipment(string $trackingNumber, string $carrierName): arr
     }
 }
 
+/**
+ * Build AddressLine array with both address lines if second line exists
+ * 
+ * @param string $addressLine1 Main address line
+ * @param string|null $addressLine2 Apartment number or second address line
+ * @return array
+ */
+protected function buildAddressLines($addressLine1, $addressLine2 = null)
+{
+    $addressLines = [trim($addressLine1)];
+    
+    if (!empty($addressLine2)) {
+        $trimmedLine2 = trim($addressLine2);
+        if (!empty($trimmedLine2)) {
+            $addressLines[] = $trimmedLine2;
+        }
+    }
+    
+    return $addressLines;
+}
 
 }
