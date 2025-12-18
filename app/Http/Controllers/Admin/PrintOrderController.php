@@ -356,7 +356,7 @@ public function getAwaitingPrintOrders(Request $request)
             's.tracking_url',
             DB::raw('COALESCE(oi.item_sku, "N/A") as item_sku')
         )
-        ->where('o.order_status', 'shipped')
+        ->whereRaw('LOWER(o.order_status) = ?', ['shipped'])
         ->where('o.printing_status', 1);
         // ->whereBetween(DB::raw('DATE(s.created_at)'), [$fromDate, $toDate]);
 
@@ -368,7 +368,7 @@ public function getAwaitingPrintOrders(Request $request)
         });
     }
     if (!empty($request->marketplace)) {
-      $query->where('o.marketplace', $request->marketplace);
+      $query->whereRaw('LOWER(o.marketplace) = ?', [strtolower($request->marketplace)]);
     }
 
     $totalRecords = $query->count();
