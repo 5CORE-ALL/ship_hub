@@ -415,36 +415,6 @@ public function getBatchOrdersfailed($batchId)
             'data' => $data,
         ]);
     }
-
-    /**
-     * Sync missing labels to bulk label history
-     */
-    public function syncMissingLabels(Request $request)
-    {
-        try {
-            $fromDate = $request->input('from_date');
-            $toDate = $request->input('to_date');
-            
-            $shippingLabelService = app(\App\Services\ShippingLabelService::class);
-            $result = $shippingLabelService->syncMissingLabelsToHistory($fromDate, $toDate);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Missing labels synced successfully',
-                'data' => $result
-            ]);
-        } catch (\Exception $e) {
-            \Log::error('Failed to sync missing labels', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to sync missing labels: ' . $e->getMessage()
-            ], 500);
-        }
-    }
 //  public function getBatchOrders(Request $request, $batchId)
 // {
 //     $fromDate = $request->input('from_date') ?? now()->toDateString();

@@ -151,7 +151,6 @@ Route::prefix('admin')->group(function () {
 
             Route::get('/bulk-label-history', [HistoryController::class, 'bulkLabel'])->name('bulk.label.history');
             Route::get('/bulk-label-history/data', [HistoryController::class, 'getBulkLabelHistory'])->name('bulk.label.history.data');
-            Route::post('/bulk-label-history/sync-missing', [HistoryController::class, 'syncMissingLabels'])->name('bulk.label.history.sync.missing');
           Route::get('/admin/bulk-label-history/{batch}/orders-data', [HistoryController::class, 'getOrders'])
     ->name('bulk.label.history.orders-data');
     Route::get('/admin/bulk-label-history/{batch}/success-history', [HistoryController::class, 'successHistory'])
