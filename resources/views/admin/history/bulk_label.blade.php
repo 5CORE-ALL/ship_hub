@@ -5,6 +5,9 @@
 
     <div class="page-title d-flex justify-content-between align-items-center mb-3">
         <h5 class="mb-0">Bulk Label History</h5>
+        <button type="button" class="btn btn-primary btn-sm" id="syncMissingLabelsBtn">
+            <i class="fa fa-sync"></i> Sync Missing Labels
+        </button>
     </div>
 
     <div class="row">
@@ -185,6 +188,55 @@ $(document).ready(function() {
             },
             error: function() {
                 $('#ordersList').html('<li class="list-group-item text-center text-danger">Error loading orders</li>');
+            }
+        });
+    });
+
+    // Sync missing labels button
+    $('#syncMissingLabelsBtn').on('click', function() {
+        const btn = $(this);
+        const originalHtml = btn.html();
+        
+        // Confirm before syncing
+        if (!confirm('Are you sure you want to sync missing labels to bulk history? This may take a few moments.')) {
+            return;
+        }
+        
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
+        
+        $.ajax({
+            url: '{{ route("bulk.label.history.sync.missing") }}',
+            type: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                if (response.success) {
+                    const message = response.message + 
+                        '\nBatches Created: ' + response.data.synced_batches + 
+                        '\nTotal Orders Synced: ' + response.data.total_orders +
+                        '\nMissing Shipments: ' + (response.data.missing_shipments || 0);
+                    
+                    toastr.success(message, 'Sync Completed', {
+                        timeOut: 5000,
+                        extendedTimeOut: 2000
+                    });
+                    
+                    // Reload the table to show new entries
+                    table.ajax.reload(null, false);
+                } else {
+                    toastr.error(response.message || 'Failed to sync missing labels', 'Sync Failed');
+                }
+            },
+            error: function(xhr) {
+                let errorMsg = 'Failed to sync missing labels';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                toastr.error(errorMsg, 'Sync Failed');
+            },
+            complete: function() {
+                btn.prop('disabled', false).html(originalHtml);
             }
         });
     });

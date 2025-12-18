@@ -8,6 +8,7 @@ use App\Models\OrderItem;
 use App\Models\Shipper;
 use App\Models\OrderShippingRate;
 use App\Models\Shipment;
+use App\Models\BulkShippingHistory;
 use setasign\Fpdi\Fpdi;
 use Illuminate\Support\Facades\Storage;
 use App\Repositories\FulfillmentRepository;
@@ -1291,5 +1292,153 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
     {
         $cleanName = preg_replace("/[^a-zA-Z\s\-\.]/", "", $name);
         return $cleanName ?: "Sender";
+    }
+
+    /**
+     * Sync missing labels to bulk label history
+     * Finds shipments with active labels that don't have a BulkShippingHistory entry
+     * and creates BulkShippingHistory records for them
+     * 
+     * @param string|null $fromDate Optional date to start from (Y-m-d format)
+     * @param string|null $toDate Optional date to end at (Y-m-d format)
+     * @return array Summary of synced records
+     */
+    public function syncMissingLabelsToHistory(?string $fromDate = null, ?string $toDate = null): array
+    {
+        ini_set("max_execution_time", 300);
+        
+        Log::info("Starting sync of missing labels to bulk history", [
+            'from_date' => $fromDate,
+            'to_date' => $toDate
+        ]);
+
+        // Get all shipments with active labels
+        $query = Shipment::where("label_status", "active")
+            ->where("void_status", "active")
+            ->whereNotNull("order_id")
+            ->whereNotNull("label_url");
+
+        if ($fromDate) {
+            $query->whereDate("created_at", ">=", $fromDate);
+        }
+        if ($toDate) {
+            $query->whereDate("created_at", "<=", $toDate);
+        }
+
+        $shipments = $query->orderBy("created_at", "asc")->get();
+
+        if ($shipments->isEmpty()) {
+            Log::info("No active shipments found to sync");
+            return [
+                "total_shipments" => 0,
+                "synced_batches" => 0,
+                "total_orders" => 0
+            ];
+        }
+
+        // Get all existing order IDs from BulkShippingHistory (check both order_ids and success_order_ids)
+        $allHistories = BulkShippingHistory::all();
+        $existingOrderIds = collect();
+        
+        foreach ($allHistories as $history) {
+            // Get order IDs from both fields
+            $orderIds = is_array($history->order_ids) ? $history->order_ids : [];
+            $successOrderIds = is_array($history->success_order_ids) ? $history->success_order_ids : [];
+            
+            $existingOrderIds = $existingOrderIds->merge($orderIds)->merge($successOrderIds);
+        }
+        
+        $existingOrderIds = $existingOrderIds->filter()->unique()->values()->toArray();
+
+        // Filter out shipments whose orders are already in history
+        $missingShipments = $shipments->filter(function ($shipment) use ($existingOrderIds) {
+            return !in_array($shipment->order_id, $existingOrderIds);
+        });
+
+        if ($missingShipments->isEmpty()) {
+            Log::info("All shipments already have bulk history entries");
+            return [
+                "total_shipments" => $shipments->count(),
+                "missing_shipments" => 0,
+                "synced_batches" => 0,
+                "total_orders" => 0
+            ];
+        }
+
+        Log::info("Found " . $missingShipments->count() . " shipments missing from bulk history");
+
+        // Group shipments by date and user (created_by)
+        $grouped = $missingShipments->groupBy(function ($shipment) {
+            $date = $shipment->created_at->format("Y-m-d");
+            $userId = $shipment->created_by ?? 0;
+            return "{$date}_{$userId}";
+        });
+
+        $syncedBatches = 0;
+        $totalOrders = 0;
+
+        foreach ($grouped as $groupKey => $groupShipments) {
+            $orderIds = $groupShipments->pluck("order_id")->unique()->values()->toArray();
+            $firstShipment = $groupShipments->first();
+            $userId = $firstShipment->created_by ?? 1; // Default to user 1 if not set
+            $createdDate = $firstShipment->created_at;
+
+            // Determine providers from shipments
+            $providers = $groupShipments->pluck("carrier")
+                ->unique()
+                ->filter()
+                ->values()
+                ->toArray();
+            $providersString = !empty($providers) ? implode(",", $providers) : "mixed";
+
+            // Count success and failed
+            // For now, assume all are successful since they have active labels
+            $successCount = count($orderIds);
+            $failedCount = 0;
+
+            try {
+                BulkShippingHistory::create([
+                    "order_ids" => $orderIds,
+                    "providers" => $providersString,
+                    "merged_pdf_url" => null,
+                    "status" => "completed",
+                    "processed" => $successCount,
+                    "success" => $successCount,
+                    "failed" => $failedCount,
+                    "success_order_ids" => $orderIds,
+                    "failed_order_ids" => [],
+                    "user_id" => $userId,
+                    "created_at" => $createdDate,
+                    "updated_at" => $createdDate,
+                ]);
+
+                $syncedBatches++;
+                $totalOrders += $successCount;
+
+                Log::info("Created bulk history entry", [
+                    "order_ids_count" => count($orderIds),
+                    "user_id" => $userId,
+                    "date" => $createdDate->format("Y-m-d"),
+                    "providers" => $providersString
+                ]);
+            } catch (\Exception $e) {
+                Log::error("Failed to create bulk history entry", [
+                    "order_ids" => $orderIds,
+                    "user_id" => $userId,
+                    "error" => $e->getMessage()
+                ]);
+            }
+        }
+
+        $summary = [
+            "total_shipments" => $shipments->count(),
+            "missing_shipments" => $missingShipments->count(),
+            "synced_batches" => $syncedBatches,
+            "total_orders" => $totalOrders
+        ];
+
+        Log::info("Completed sync of missing labels to bulk history", $summary);
+
+        return $summary;
     }
 }
