@@ -331,10 +331,10 @@ class ShippingLabelService
                         //     "printing_status" => 1,
                         // ]);
 
-                        Shipment::create([
+                        $shipment = Shipment::create([
                             "order_id" => $order->id,
                             "tracking_number" => $trackingNumber,
-                            "carrier" =>detectCarrier($label["trackingNumber"]) ?: 'Standard',
+                            "carrier" => detectCarrier($trackingNumber) ?: 'Standard',
                             "label_id" => $label["label_id"] ?? null,
                             "service_type" =>
                                 $label["raw"]["service_code"] ?? null,
@@ -360,6 +360,23 @@ class ShippingLabelService
                             "void_status" => "active",
                             "created_by"=>$userId
                         ]);
+
+                        // Sync tracking number to platform
+                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0 && strtolower($order->marketplace) !== 'amazon') {
+                            try {
+                                $this->fulfillmentRepo->createFulfillment(
+                                    $order->marketplace,
+                                    $order->store_id ?? 0,
+                                    $order->order_number,
+                                    $trackingNumber,
+                                    detectCarrier($trackingNumber),
+                                    $label["raw"]["service_code"] ?? null
+                                );
+                                Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
+                            } catch (\Exception $e) {
+                                Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                            }
+                        }
 
                         $result = [
                             "success" => true,
@@ -424,7 +441,7 @@ class ShippingLabelService
                             "printing_status" => 1,
                         ]);
 
-                        Shipment::create([
+                        $shipment = Shipment::create([
                             "order_id" => $order->id,
                             "tracking_number" =>
                                 $label["trackingNumber"] ?? null,
@@ -451,6 +468,24 @@ class ShippingLabelService
                             "void_status" => "active",
                             "created_by"=>$userId
                         ]);
+
+                        // Sync tracking number to platform
+                        $trackingNumber = $label["trackingNumber"] ?? null;
+                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0 && strtolower($order->marketplace) !== 'amazon') {
+                            try {
+                                $this->fulfillmentRepo->createFulfillment(
+                                    $order->marketplace,
+                                    $order->store_id ?? 0,
+                                    $order->order_number,
+                                    $trackingNumber,
+                                    $carrier,
+                                    $service
+                                );
+                                Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
+                            } catch (\Exception $e) {
+                                Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                            }
+                        }
 
                         $result = [
                             "success" => true,
@@ -519,7 +554,7 @@ class ShippingLabelService
                             "printing_status" => 1,
                         ]);
 
-                        Shipment::create([
+                        $shipment = Shipment::create([
                             "order_id" => $orderId,
                             "tracking_number" => $label["trackingNumber"],
                             "carrier" =>  detectCarrier($label["trackingNumber"]) ?: 'Standard',
@@ -545,6 +580,24 @@ class ShippingLabelService
                             "void_status" => "active",
                             "created_by"=>$userId
                         ]);
+
+                        // Sync tracking number to platform
+                        $trackingNumber = $label["trackingNumber"] ?? null;
+                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0 && strtolower($order->marketplace) !== 'amazon') {
+                            try {
+                                $this->fulfillmentRepo->createFulfillment(
+                                    $order->marketplace,
+                                    $order->store_id ?? 0,
+                                    $order->order_number,
+                                    $trackingNumber,
+                                    $label["raw"]["carrier_code"] ?? null,
+                                    $label["raw"]["service_code"] ?? null
+                                );
+                                Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
+                            } catch (\Exception $e) {
+                                Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                            }
+                        }
 
                         $result = [
                             "success" => true,
