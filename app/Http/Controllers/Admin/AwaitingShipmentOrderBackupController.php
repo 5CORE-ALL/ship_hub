@@ -105,6 +105,7 @@ class AwaitingShipmentOrderBackupController extends Controller
             $params = [
                 'ship_to_name' => $order->recipient_name,
                 'ship_to_address' => $order->ship_address1,
+                'ship_to_address2' => $order->ship_address2 ?? '',
                 'ship_to_city' => $order->ship_city,
                 'ship_to_state' => $order->ship_state,
                 'ship_to_zip' => $order->ship_postal_code,

@@ -93,7 +93,7 @@ class ShipStationService
                     "name" => $params['ship_to_name'] ?? "John Doe",
                     // "phone" => $params['ship_to_phone'] ?? "0000000000",
                     "address_line1" => trim(($params['ship_to_address'] ?? "123 Destination St.")),
-                    "address_line2" => trim($params["ship_address2"] ?? "") ?: "",
+                    "address_line2" => trim($params["ship_to_address2"] ?? $params["ship_address2"] ?? "") ?: "",
                     // "address_line2"=> $skuString ?: null,
                     "company_name" => !empty($labelString) ? "($labelString)" : "",
                     "city_locality" => $params['ship_to_city'] ?? "Dallas",
