@@ -140,7 +140,7 @@ $total_labels_created = Shipment::join('orders as o', 'shipments.order_id', '=',
     $shipped_orders = $query->count();
 
     $connected_marketplaces = Order::query()
-    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc."])
+    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc.",'amazon'])
     ->distinct('marketplace')
     ->count('marketplace');
     $dailySummary = DB::table('bulk_shipping_histories')

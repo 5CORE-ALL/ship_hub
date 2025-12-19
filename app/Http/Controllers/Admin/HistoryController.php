@@ -55,7 +55,7 @@ class HistoryController extends Controller
             $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3'])
               ->orWhereNull('orders.source_name');
         })
-        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb'])
+        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','amazon'])
         // ->where('orders.queue',0)
         // ->whereIn('orders.order_status', [
         //     'Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted', 'awaiting_shipment','Created','Acknowledged','AWAITING_SHIPMENT'
@@ -289,7 +289,7 @@ public function successHistory($batchId)
         ->whereIn('marketplace', [
             'ebay1', 'ebay2', 'ebay3', 'shopify', 'walmart',
             'reverb', 'PLS', 'Temu', 'TikTok',
-            'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc."
+            'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc.",'amazon'
         ])
         ->distinct()
         ->pluck('marketplace');

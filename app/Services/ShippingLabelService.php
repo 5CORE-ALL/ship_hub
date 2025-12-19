@@ -363,7 +363,7 @@ class ShippingLabelService
                         ]);
 
                         // Sync tracking number to platform
-                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0 && strtolower($order->marketplace) !== 'amazon') {
+                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
                             try {
                                 $this->fulfillmentRepo->createFulfillment(
                                     $order->marketplace,
@@ -472,7 +472,7 @@ class ShippingLabelService
 
                         // Sync tracking number to platform
                         $trackingNumber = $label["trackingNumber"] ?? null;
-                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0 && strtolower($order->marketplace) !== 'amazon') {
+                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
                             try {
                                 $this->fulfillmentRepo->createFulfillment(
                                     $order->marketplace,
@@ -584,7 +584,7 @@ class ShippingLabelService
 
                         // Sync tracking number to platform
                         $trackingNumber = $label["trackingNumber"] ?? null;
-                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0 && strtolower($order->marketplace) !== 'amazon') {
+                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
                             try {
                                 $this->fulfillmentRepo->createFulfillment(
                                     $order->marketplace,

@@ -119,6 +119,29 @@ class AmazonSyncOrders extends Command
                     ]);
                 }
 
+                // Fetch shipping address (Amazon SP-API requires separate call)
+                // Rate limit: 60 requests per minute - add small delay to respect rate limit
+                usleep(1000000); // 1 second delay between address calls
+                $addressEndpoint = env('AMAZON_BASE_URL', 'https://sellingpartnerapi-na.amazon.com') . "/orders/v0/orders/{$orderId}/address";
+                $addressResponse = Http::withHeaders([
+                    'Authorization'      => 'Bearer ' . $integration->access_token,
+                    'x-amz-access-token' => $integration->access_token,
+                ])->get($addressEndpoint);
+
+                $shippingAddress = null;
+                if ($addressResponse->successful()) {
+                    $shippingAddress = $addressResponse->json()['payload']['ShippingAddress'] ?? null;
+                    Log::info('Shipping Address Fetched', [
+                        'order_id' => $orderId,
+                        'has_address' => !empty($shippingAddress),
+                    ]);
+                } else {
+                    Log::warning("Failed to fetch address for Order {$orderId}", [
+                        'status' => $addressResponse->status(),
+                        'body' => $addressResponse->body(),
+                    ]);
+                }
+
                 // Calculate total quantity from items (fallback to NumberOfItemsUnshipped or 1)
                 $totalQuantity = 0;
                 if (!empty($items)) {
@@ -130,7 +153,21 @@ class AmazonSyncOrders extends Command
                     $totalQuantity = $order['NumberOfItemsUnshipped'] ?? ($order['NumberOfItemsShipped'] ?? 1);
                 }
 
+                // Get buyer info (might be in BuyerInfo object)
+                $buyerEmail = $order['BuyerInfo']['BuyerEmail'] ?? $order['BuyerEmail'] ?? null;
+                $buyerName = $order['BuyerInfo']['BuyerName'] ?? $order['BuyerName'] ?? null;
+                
+                // Handle recipient name - Amazon may return empty string, treat as null
+                $recipientName = null;
+                if ($shippingAddress && !empty(trim($shippingAddress['Name'] ?? ''))) {
+                    $recipientName = trim($shippingAddress['Name']);
+                } elseif ($buyerName && !empty(trim($buyerName))) {
+                    $recipientName = trim($buyerName);
+                }
+
                 // Build order data array
+                // Use shipping address from separate API call, not from order data
+                // Note: Amazon may return partial address data for privacy reasons
                 $orderData = [
                     'marketplace'        => 'amazon',
                     'store_id'           => $integration->store_id,
@@ -140,15 +177,16 @@ class AmazonSyncOrders extends Command
                     'order_age'          => isset($order['PurchaseDate']) ? now()->diffInDays(Carbon::parse($order['PurchaseDate'])) : null,
                     'quantity'           => $totalQuantity,
                     'order_total'        => $order['OrderTotal']['Amount'] ?? 0.00,
-                    // 'recipient_name'     => $order['ShippingAddress']['Name'] ?? ($order['BuyerName'] ?? null),
-                    'recipient_email'    => $order['BuyerEmail'] ?? null,
-                    // 'recipient_phone'    => $order['ShippingAddress']['Phone'] ?? null,
-                    // 'ship_address1'      => $order['ShippingAddress']['AddressLine1'] ?? null,
-                    // 'ship_address2'      => $order['ShippingAddress']['AddressLine2'] ?? null,
-                    'ship_city'          => $order['ShippingAddress']['City'] ?? null,
-                    'ship_state'         => $order['ShippingAddress']['StateOrRegion'] ?? null,
-                    'ship_postal_code'   => $order['ShippingAddress']['PostalCode'] ?? null,
-                    'ship_country'       => $order['ShippingAddress']['CountryCode'] ?? null,
+                    'recipient_name'     => $recipientName,
+                    'recipient_email'    => $buyerEmail ?? null,
+                    'recipient_phone'    => !empty($shippingAddress['Phone'] ?? '') ? $shippingAddress['Phone'] : null,
+                    'ship_address1'      => !empty($shippingAddress['AddressLine1'] ?? '') ? $shippingAddress['AddressLine1'] : null,
+                    'ship_address2'      => !empty($shippingAddress['AddressLine2'] ?? '') ? $shippingAddress['AddressLine2'] : null,
+                    'ship_city'          => !empty($shippingAddress['City'] ?? '') ? $shippingAddress['City'] : null,
+                    'ship_state'         => !empty($shippingAddress['StateOrRegion'] ?? '') ? $shippingAddress['StateOrRegion'] : null,
+                    'ship_postal_code'   => !empty($shippingAddress['PostalCode'] ?? '') ? $shippingAddress['PostalCode'] : null,
+                    'ship_country'       => !empty($shippingAddress['CountryCode'] ?? '') ? $shippingAddress['CountryCode'] : null,
+                    // DefaultShipFromLocationAddress might not be available - check if it exists in order data
                     'shipper_name'       => $order['DefaultShipFromLocationAddress']['Name'] ?? null,
                     'shipper_street'     => $order['DefaultShipFromLocationAddress']['AddressLine1'] ?? null,
                     'shipper_city'       => $order['DefaultShipFromLocationAddress']['City'] ?? null,

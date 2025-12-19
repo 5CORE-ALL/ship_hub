@@ -10,7 +10,8 @@ use App\Services\BusinessFiveCoreShopifyFulfillmentService;
 use App\Services\ProLightSoundsFulfillmentService;
 use App\Services\MiraklFulfillmentService;
 use App\Services\AliExpressAuthService;
-use App\Services\TikTokAuthService; 
+use App\Services\TikTokAuthService;
+use App\Services\AmazonFulfillmentService; 
 use Illuminate\Support\Facades\Log;
 use App\Models\Order;
 
@@ -28,8 +29,8 @@ class FulfillmentRepository
         MiraklFulfillmentService $miracleService,
         AliExpressAuthService $aliexpressService,
         TikTokAuthService $tiktokService,
+        AmazonFulfillmentService $amazonService,
         // TemuFulfillmentService $temuService,
-        // AmazonFulfillmentService $amazonService
     ) {
         $this->services = [
             'shopify' => $shopifyService,
@@ -41,9 +42,9 @@ class FulfillmentRepository
             'miracle'       => $miracleService,
             'aliexpress'    => $aliexpressService,
             'tiktok'        => $tiktokService,
+            'amazon'        => $amazonService,
 
             // 'temu'    => $temuService,
-            // 'amazon'  => $amazonService,
         ];
     }
 
@@ -234,6 +235,31 @@ class FulfillmentRepository
                 );
             } catch (\Throwable $e) {
                 Log::error("❌ TikTok fulfillment failed: {$e->getMessage()}");
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        }
+
+        // Amazon fulfillment
+        $amazonMarketplace = strtolower(trim($marketplace));
+        if ($amazonMarketplace === 'amazon') {
+            Log::info("➡ {$marketplace} order routed to Amazon fulfillment");
+            
+            if (!isset($this->services['amazon'])) {
+                Log::error("❌ Amazon fulfillment service not configured");
+                return null;
+            }
+
+            try {
+                return $this->services['amazon']->fulfillOrder(
+                    $marketplace,
+                    $storeId,
+                    $orderNumber,
+                    $trackingNumber,
+                    $carrier,
+                    $shippingServiceCode
+                );
+            } catch (\Throwable $e) {
+                Log::error("❌ Amazon fulfillment failed: {$e->getMessage()}");
                 return ['success' => false, 'error' => $e->getMessage()];
             }
         }

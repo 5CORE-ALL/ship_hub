@@ -458,7 +458,7 @@ public function getAwaitingShipmentOrders(Request $request)
             $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3','shopify_draft_order'])
               ->orWhereNull('orders.source_name');
         })
-        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok'])
+        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok','amazon'])
         ->where('orders.queue',0)
         ->where('marked_as_ship',0)
         ->whereIn('orders.order_status', [

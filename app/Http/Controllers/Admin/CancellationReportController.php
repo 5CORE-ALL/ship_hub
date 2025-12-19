@@ -25,7 +25,7 @@ class CancellationReportController extends Controller
             ->whereIn('marketplace', [
                 'ebay1', 'ebay2', 'ebay3', 'shopify', 'walmart',
                 'reverb', 'PLS', 'Temu', 'TikTok',
-                'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc."
+                'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc.",'amazon'
             ])
             ->pluck('marketplace')
             ->unique()

@@ -103,11 +103,54 @@ class AmazonOrderService
     }
 
     /**
+     * Fetch shipping address for a specific order.
+     * Note: Amazon SP-API requires a separate call to get shipping address.
+     * Rate limit: 60 requests per minute.
+     */
+    public function fetchOrderAddress(string $orderId): ?array
+    {
+        $this->ensureAccessToken();
+
+        $endpoint = env('AMAZON_BASE_URL', 'https://sellingpartnerapi-na.amazon.com') . "/orders/v0/orders/{$orderId}/address";
+
+        $response = Http::withHeaders([
+            'Authorization'      => 'Bearer ' . $this->integration->access_token,
+            'x-amz-access-token' => $this->integration->access_token,
+        ])->get($endpoint);
+
+        if ($response->failed()) {
+            Log::warning("Failed to fetch address for order {$orderId}", [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return null;
+        }
+
+        return $response->json()['payload']['ShippingAddress'] ?? null;
+    }
+
+    /**
      * Save an order and its items to the database.
      */
     public function saveOrder(array $order, array $items): Order
     {
         $totalQuantity = array_sum(array_column($items, 'QuantityOrdered')) ?? ($order['NumberOfItemsUnshipped'] ?? 1);
+
+        // Fetch shipping address separately (Amazon SP-API requires separate call)
+        // Note: Amazon may return partial address data for privacy reasons
+        $shippingAddress = $this->fetchOrderAddress($order['AmazonOrderId']);
+        
+        // Also check BuyerInfo for email if available
+        $buyerEmail = $order['BuyerInfo']['BuyerEmail'] ?? $order['BuyerEmail'] ?? null;
+        $buyerName = $order['BuyerInfo']['BuyerName'] ?? $order['BuyerName'] ?? null;
+        
+        // Handle recipient name - Amazon may return empty string, treat as null
+        $recipientName = null;
+        if ($shippingAddress && !empty(trim($shippingAddress['Name'] ?? ''))) {
+            $recipientName = trim($shippingAddress['Name']);
+        } elseif ($buyerName && !empty(trim($buyerName))) {
+            $recipientName = trim($buyerName);
+        }
 
         $orderData = [
             'marketplace'        => 'amazon',
@@ -118,15 +161,16 @@ class AmazonOrderService
             'order_age'          => isset($order['PurchaseDate']) ? now()->diffInDays(Carbon::parse($order['PurchaseDate'])) : null,
             'quantity'           => $totalQuantity,
             'order_total'        => $order['OrderTotal']['Amount'] ?? 0.00,
-            'recipient_name'     => $order['ShippingAddress']['Name'] ?? ($order['BuyerName'] ?? null),
-            'recipient_email'    => $order['BuyerEmail'] ?? null,
-            'recipient_phone'    => $order['ShippingAddress']['Phone'] ?? null,
-            'ship_address1'      => $order['ShippingAddress']['AddressLine1'] ?? null,
-            'ship_address2'      => $order['ShippingAddress']['AddressLine2'] ?? null,
-            'ship_city'          => $order['ShippingAddress']['City'] ?? null,
-            'ship_state'         => $order['ShippingAddress']['StateOrRegion'] ?? null,
-            'ship_postal_code'   => $order['ShippingAddress']['PostalCode'] ?? null,
-            'ship_country'       => $order['ShippingAddress']['CountryCode'] ?? null,
+            'recipient_name'     => $recipientName,
+            'recipient_email'    => $buyerEmail ?? null,
+            'recipient_phone'    => !empty($shippingAddress['Phone'] ?? '') ? $shippingAddress['Phone'] : null,
+            'ship_address1'      => !empty($shippingAddress['AddressLine1'] ?? '') ? $shippingAddress['AddressLine1'] : null,
+            'ship_address2'      => !empty($shippingAddress['AddressLine2'] ?? '') ? $shippingAddress['AddressLine2'] : null,
+            'ship_city'          => !empty($shippingAddress['City'] ?? '') ? $shippingAddress['City'] : null,
+            'ship_state'         => !empty($shippingAddress['StateOrRegion'] ?? '') ? $shippingAddress['StateOrRegion'] : null,
+            'ship_postal_code'   => !empty($shippingAddress['PostalCode'] ?? '') ? $shippingAddress['PostalCode'] : null,
+            'ship_country'       => !empty($shippingAddress['CountryCode'] ?? '') ? $shippingAddress['CountryCode'] : null,
+            // DefaultShipFromLocationAddress might be in the order data or need separate call
             'shipper_name'       => $order['DefaultShipFromLocationAddress']['Name'] ?? null,
             'shipper_street'     => $order['DefaultShipFromLocationAddress']['AddressLine1'] ?? null,
             'shipper_city'       => $order['DefaultShipFromLocationAddress']['City'] ?? null,
