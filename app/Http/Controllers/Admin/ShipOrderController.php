@@ -587,13 +587,20 @@ public function printLabels(Request $request, ShippingLabelService $labelService
             return DB::transaction(function () use ($request) {
                 $orderItems = OrderItem::where('order_id', $request->order_id)->get();
                 $field = $request->field;
-                $value = $request->value;
+                // Convert empty string to null
+                $value = $request->value === '' || $request->value === null ? null : (float) $request->value;
                 $itemCount = $orderItems->count();
 
                 if ($itemCount === 0) {
                     throw new \Exception('No order items found for this order.');
                 }
-                $updateValue = $itemCount > 1 && $value !== null ? $value / $itemCount : $value;
+                
+                // Calculate update value: if multiple items, divide the total value among them
+                $updateValue = null;
+                if ($value !== null) {
+                    $updateValue = $itemCount > 1 ? $value / $itemCount : $value;
+                }
+                
                 foreach ($orderItems as $orderItem) {
                     $orderItem->$field = $updateValue;
                     $orderItem->save();
@@ -636,11 +643,12 @@ public function bulkUpdateDimensions(Request $request)
     }
 
     $orderIds = $request->input('order_ids');
+    // Convert empty strings to null and ensure numeric values are properly cast
     $fields   = [
-        'height' => $request->input('height'),
-        'length' => $request->input('length'),
-        'width'  => $request->input('width'),
-        'weight' => $request->input('weight'),
+        'height' => $request->input('height') === '' || $request->input('height') === null ? null : (float) $request->input('height'),
+        'length' => $request->input('length') === '' || $request->input('length') === null ? null : (float) $request->input('length'),
+        'width'  => $request->input('width') === '' || $request->input('width') === null ? null : (float) $request->input('width'),
+        'weight' => $request->input('weight') === '' || $request->input('weight') === null ? null : (float) $request->input('weight'),
     ];
 
     // ✅ Update dimensions and reset shipping flags immediately
@@ -655,9 +663,11 @@ public function bulkUpdateDimensions(Request $request)
 
         foreach ($orderItems as $orderItem) {
             foreach ($fields as $field => $value) {
+                // Only update if value is provided (not null)
                 if ($value !== null) {
                     $orderItem->$field = $itemCount > 1 ? $value / $itemCount : $value;
                 }
+                // If value is null, don't update that field (leave existing value)
             }
             $orderItem->save();
         }

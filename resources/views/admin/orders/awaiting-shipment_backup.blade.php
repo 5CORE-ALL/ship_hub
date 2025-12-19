@@ -661,7 +661,7 @@
                     title: 'Height (H)',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return data || '—';
+                        return (data !== null && data !== undefined && data !== '') ? data : '—';
                     },
                     visible: columnVisibilityMap['height'] !== undefined ? columnVisibilityMap['height'] : true
                 },
@@ -670,7 +670,7 @@
                     title: 'Width (W)',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return data || '—';
+                        return (data !== null && data !== undefined && data !== '') ? data : '—';
                     },
                     visible: columnVisibilityMap['width'] !== undefined ? columnVisibilityMap['width'] : true
                 },
@@ -679,7 +679,7 @@
                     title: 'Length (L)',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return data || '—';
+                        return (data !== null && data !== undefined && data !== '') ? data : '—';
                     },
                     visible: columnVisibilityMap['length'] !== undefined ? columnVisibilityMap['length'] : true
                 },
@@ -688,7 +688,7 @@
                     title: 'Weight',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return data || '—';
+                        return (data !== null && data !== undefined && data !== '') ? data : '—';
                     },
                     visible: columnVisibilityMap['weight'] !== undefined ? columnVisibilityMap['weight'] : true
                 },
@@ -1085,13 +1085,15 @@
                         return;
                     }
                     if (newValue !== originalValue) {
+                        // Convert empty string to null for proper backend handling
+                        let valueToSend = newValue === '' ? null : newValue;
                         $.ajax({
                             url: '{{ route("orders.update-dimensions") }}',
                             type: 'POST',
                             data: {
                                 order_id: rowData.id,
                                 field: field,
-                                value: newValue,
+                                value: valueToSend,
                                 _token: '{{ csrf_token() }}'
                             },
                             success: function(response) {
