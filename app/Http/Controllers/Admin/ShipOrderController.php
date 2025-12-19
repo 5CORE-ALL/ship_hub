@@ -601,20 +601,48 @@ public function printLabels(Request $request, ShippingLabelService $labelService
                     $updateValue = $itemCount > 1 ? $value / $itemCount : $value;
                 }
                 
+                // Use update() for more reliable persistence
                 foreach ($orderItems as $orderItem) {
-                    $orderItem->$field = $updateValue;
-                    $orderItem->save();
+                    $orderItem->update([$field => $updateValue]);
                 }
-                 Order::where('id', $request->order_id)->update([
+                
+                // Verify the update was saved by refreshing the models
+                $orderItems->each(function($item) {
+                    $item->refresh();
+                });
+                
+                // Log the update for debugging
+                $sumValue = $orderItems->sum($field);
+                Log::info("Updated dimension", [
+                    'order_id' => $request->order_id,
+                    'field' => $field,
+                    'value' => $value,
+                    'update_value' => $updateValue,
+                    'item_count' => $itemCount,
+                    'updated_items' => $orderItems->pluck('id')->toArray(),
+                    'sum_after_update' => $sumValue,
+                    'values' => $orderItems->pluck($field)->toArray()
+                ]);
+                
+                // Reset shipping rate flags so rates can be refetched with new dimensions
+                Order::where('id', $request->order_id)->update([
                     'shipping_rate_fetched' => 0
-                 ]);
-                 OrderShippingRate::where('order_id', $request->order_id)->delete();
-                $rateResults = $this->orderRateFetcherService->fetch($request->order_id);
+                ]);
+                OrderShippingRate::where('order_id', $request->order_id)->delete();
+                
+                // Don't automatically fetch rates - let user trigger it manually or via background job
+                // This prevents any potential interference with the dimension update
 
+                // Get the sum of the updated field for verification
+                $sumValue = $orderItems->sum($field);
+                
                 return response()->json([
                     'success' => true,
                     'message' => ucfirst($field) . ' updated successfully.',
-                    'item_count' => $itemCount
+                    'item_count' => $itemCount,
+                    'updated_value' => $value, // The value that was set
+                    'sum_value' => $sumValue, // The sum of all items (should match $value)
+                    'field' => $field
                 ]);
             });
         } catch (\Exception $e) {
@@ -662,14 +690,17 @@ public function bulkUpdateDimensions(Request $request)
         }
 
         foreach ($orderItems as $orderItem) {
+            $updateData = [];
             foreach ($fields as $field => $value) {
                 // Only update if value is provided (not null)
                 if ($value !== null) {
-                    $orderItem->$field = $itemCount > 1 ? $value / $itemCount : $value;
+                    $updateData[$field] = $itemCount > 1 ? $value / $itemCount : $value;
                 }
                 // If value is null, don't update that field (leave existing value)
             }
-            $orderItem->save();
+            if (!empty($updateData)) {
+                $orderItem->update($updateData);
+            }
         }
 
         // Reset shipping rate flags and remove old shipping rates

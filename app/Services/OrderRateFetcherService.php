@@ -76,10 +76,13 @@ class OrderRateFetcherService
     {
         $shipper = Shipper::first();
 
-        $length = $order->length ?? 4.0;
-        $width  = $order->width ?? 4.0;
-        $height = $order->height ?? 7.0;
-        $weight = $order->weight ?? 0.25;
+        // Get dimensions from order_items relationship (sum for multiple items)
+        // This ensures we get the latest updated values, not from join
+        $order->load('items');
+        $length = $order->items->sum('length') ?: 4.0;
+        $width  = $order->items->sum('width') ?: 4.0;
+        $height = $order->items->sum('height') ?: 7.0;
+        $weight = $order->items->sum('weight') ?: 0.25;
 
         $params = [
             'order_id'         => $order->id,

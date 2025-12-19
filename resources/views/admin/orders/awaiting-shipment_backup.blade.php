@@ -1098,13 +1098,20 @@
                             },
                             success: function(response) {
                                 if (response.success) {
+                                    // Update the cell immediately with the new value
+                                    $td.text(newValue || '—');
+                                    // Then reload the table after a short delay to ensure DB is updated
+                                    setTimeout(function() {
+                                        table.ajax.reload(null, false);
+                                    }, 100);
                                     Swal.fire({
                                         icon: 'success',
                                         title: 'Updated',
                                         text: `${field.charAt(0).toUpperCase() + field.slice(1)} updated successfully!`,
-                                        confirmButtonText: 'OK'
+                                        confirmButtonText: 'OK',
+                                        timer: 1500,
+                                        showConfirmButton: false
                                     });
-                                    table.ajax.reload(null, false);
                                 } else {
                                     Swal.fire({
                                         icon: 'error',

@@ -37,8 +37,14 @@ class SyncShipStationCarriers extends Command
             $carriersResponse = $shipStationService->getCarriers();
             $this->info('Fetching carriers from ShipStation...');
 
+            $syncedCarriers = [];
+            $uspsFound = false;
+
             // Process each carrier from the response
             foreach ($carriersResponse['carriers'] as $carrier) {
+                $carrierCode = strtoupper($carrier['carrier_code'] ?? '');
+                $isUSPS = $carrierCode === 'USPS' || $carrierCode === 'STAMPS_ENDICIA';
+                
                 // Insert or update carriers_list
                 CarriersList::updateOrCreate(
                     ['carrier_id' => $carrier['carrier_id']],
@@ -59,7 +65,28 @@ class SyncShipStationCarriers extends Command
                         'updated_at' => now(),
                     ]
                 );
-                $this->info("Synced carrier: {$carrier['friendly_name']}");
+
+                $accountInfo = !empty($carrier['account_number']) && $carrier['account_number'] !== '-' 
+                    ? " (Account: {$carrier['account_number']})" 
+                    : " (No account connected)";
+                
+                if ($isUSPS) {
+                    $uspsFound = true;
+                    $this->info("✅ Synced USPS carrier: {$carrier['friendly_name']}{$accountInfo}");
+                    if (!empty($carrier['account_number']) && $carrier['account_number'] !== '-') {
+                        $this->info("   🎉 USPS account connected - Discounted rates available!");
+                    } else {
+                        $this->warn("   ⚠️  No USPS account connected - Connect in ShipStation for discounted rates");
+                    }
+                } else {
+                    $this->info("Synced carrier: {$carrier['friendly_name']}{$accountInfo}");
+                }
+
+                $syncedCarriers[] = [
+                    'name' => $carrier['friendly_name'],
+                    'code' => $carrierCode,
+                    'account' => $carrier['account_number'] ?? '-',
+                ];
 
                 // Insert or update carrier_services_list
                 foreach ($carrier['services'] as $service) {
@@ -80,7 +107,7 @@ class SyncShipStationCarriers extends Command
                         ]
                     );
                 }
-                $this->info("Synced services for carrier: {$carrier['friendly_name']}");
+                $this->info("   Synced services for carrier: {$carrier['friendly_name']}");
 
                 // Insert or update carrier_packages_list
                 foreach ($carrier['packages'] as $package) {
@@ -97,12 +124,38 @@ class SyncShipStationCarriers extends Command
                         ]
                     );
                 }
-                $this->info("Synced packages for carrier: {$carrier['friendly_name']}");
+                $this->info("   Synced packages for carrier: {$carrier['friendly_name']}");
             }
 
+            // Summary
+            $this->newLine();
+            $this->info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            $this->info('📦 Carrier Sync Summary');
+            $this->info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            $this->info("Total carriers synced: " . count($syncedCarriers));
+            
+            if ($uspsFound) {
+                $uspsCarrier = collect($syncedCarriers)->first(function($c) {
+                    return strtoupper($c['code']) === 'USPS' || strtoupper($c['code']) === 'STAMPS_ENDICIA';
+                });
+                if ($uspsCarrier && $uspsCarrier['account'] !== '-') {
+                    $this->info("✅ USPS: Connected with account {$uspsCarrier['account']}");
+                    $this->info("   Discounted rates will be used automatically");
+                } else {
+                    $this->warn("⚠️  USPS: Found but no account connected");
+                    $this->warn("   Connect your USPS account in ShipStation to get discounted rates");
+                }
+            } else {
+                $this->warn("⚠️  USPS: Not found in ShipStation");
+                $this->warn("   Add USPS carrier in ShipStation Settings → Carriers");
+            }
+            
+            $this->info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             $this->info('Carrier sync completed successfully.');
         } catch (Exception $e) {
-            $this->error('Error syncing ShipStation data: ' . $e->getMessage());
+            $this->error('❌ Error syncing ShipStation data: ' . $e->getMessage());
+            $this->error('Stack trace: ' . $e->getTraceAsString());
+            throw $e;
         }
     }
 }
