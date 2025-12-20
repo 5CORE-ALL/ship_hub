@@ -16,9 +16,11 @@ class TikTokAuthService
     protected string $redirectUri;
     protected ?Client $client = null;
 
-    public function __construct()
+    public function __construct(?int $storeId = null)
     {
-         $integration = \App\Models\Integration::where('store_id', 10)->first();
+        // Try to load credentials from the specified store, or default to store_id 10 for backward compatibility
+        $storeId = $storeId ?? 10;
+        $integration = \App\Models\Integration::where('store_id', $storeId)->first();
 
         if ($integration && $integration->app_id && $integration->app_secret) {
             $this->clientKey = $integration->app_id;

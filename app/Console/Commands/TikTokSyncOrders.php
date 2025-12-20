@@ -15,124 +15,173 @@ use EcomPHP\TiktokShop\Errors\ResponseException;
 
 class TikTokSyncOrders extends Command
 {
-    protected $signature = 'tiktok:sync-order';
-    protected $description = 'Fetch and sync TikTok orders with full order details';
+    protected $signature = 'tiktok:sync-order {--store= : Sync orders for a specific store ID only}';
+    protected $description = 'Fetch and sync TikTok orders with full order details for all TikTok stores (or a specific store if --store is provided)';
 
     public function handle()
     {
-        $this->info('🔄 Syncing TikTok orders with full details...');
-        Log::info('Starting TikTok order sync');
+        $storeId = $this->option('store');
+        
+        if ($storeId) {
+            $this->info("🔹 Starting TikTok order sync for store ID: {$storeId}...");
+        } else {
+            $this->info('🔹 Starting TikTok order sync for all stores...');
+        }
+        
+        Log::info('Starting TikTok order sync', ['store_id' => $storeId]);
 
-        try {
-            $storeId = 10; // hardcoded
-            $tiktok = new TikTokAuthService();
+        // Query TikTok stores from database
+        $stores = DB::table('stores as s')
+            ->join('sales_channels as sc', 's.sales_channel_id', '=', 'sc.id')
+            ->join('marketplaces as m', 's.marketplace_id', '=', 'm.id')
+            ->leftJoin('integrations as i', 's.id', '=', 'i.store_id')
+            ->where('sc.platform', 'tiktok')
+            ->when($storeId, function ($query) use ($storeId) {
+                return $query->where('s.id', $storeId);
+            })
+            ->select(
+                's.id as store_id',
+                's.name as store_name',
+                'sc.name as sales_channel_name',
+                'm.name as marketplace_name',
+                'i.access_token',
+                'i.refresh_token',
+                'i.app_id',
+                'i.app_secret',
+                'i.expires_at',
+                'i.shop_cipher'
+            )
+            ->distinct()
+            ->get();
 
-            // 1️⃣ Get access token
-            $accessToken = $tiktok->getAccessToken($storeId);
-            if (!$accessToken) {
-                $integration = \App\Models\Integration::where('store_id', $storeId)->first();
-                if (!$integration) {
-                    $this->error("❌ No integration found for TikTok store ID {$storeId}. Please set up the integration first.");
-                    Log::error("TikTok sync failed: No integration for store_id {$storeId}");
-                } elseif (!$integration->refresh_token) {
-                    $this->error("❌ TikTok integration for store ID {$storeId} is missing refresh_token. Please re-authenticate.");
-                    Log::error("TikTok sync failed: Missing refresh_token for store_id {$storeId}");
-                } else {
-                    $this->error("❌ Failed to refresh TikTok access token for store ID {$storeId}. Token may be expired or invalid.");
-                    Log::error("TikTok sync failed: Token refresh failed for store_id {$storeId}");
-                }
-                return Command::FAILURE;
-            }
+        if ($stores->isEmpty()) {
+            $this->error('⚠️ No TikTok stores found.');
+            Log::warning('TikTok sync: No stores found');
+            return Command::FAILURE;
+        }
 
-            // 2️⃣ Get shop cipher
-            try {
-                $shopCipher = $tiktok->getAuthorizedShopCipher($storeId, $accessToken);
-                if (!$shopCipher) {
-                    $this->error('❌ Failed to get TikTok shop cipher.');
-                    $this->warn('💡 Check logs for detailed error information.');
-                    $this->warn('💡 The API response structure might be different than expected.');
-                    Log::error('TikTok sync: Shop cipher retrieval failed', [
-                        'store_id' => $storeId,
-                        'access_token_present' => !empty($accessToken),
-                    ]);
-                    return Command::FAILURE;
-                }
-            } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
-                $errorMessage = $e->getMessage();
-                $this->error('❌ Failed to get TikTok shop cipher.');
-                
-                if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
-                    strpos($errorMessage, 'Access denied') !== false) {
-                    $this->error('');
-                    $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
-                    $this->error('Your server IP address is not whitelisted in TikTok Shop.');
-                    $this->warn('');
-                    $this->warn('To fix this:');
-                    $this->warn('1. Go to TikTok Shop Developer Portal');
-                    $this->warn('2. Navigate to your app settings');
-                    $this->warn('3. Add your server IP address to the IP allowlist');
-                    $this->warn('4. Save and wait a few minutes for changes to take effect');
-                    $this->warn('');
-                    $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
-                } else {
-                    $this->error('Error: ' . $errorMessage);
-                    $this->warn('💡 Check logs for detailed error information.');
-                }
-                
-                Log::error('TikTok sync: Shop cipher retrieval failed with exception', [
-                    'store_id' => $storeId,
-                    'error' => $errorMessage,
-                    'error_code' => $e->getCode(),
-                ]);
-                return Command::FAILURE;
-            } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
-                $errorMessage = $e->getMessage();
-                $this->error('❌ Failed to get TikTok shop cipher.');
-                
-                if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
-                    strpos($errorMessage, 'Access denied') !== false) {
-                    $this->error('');
-                    $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
-                    $this->error('Your server IP address is not whitelisted in TikTok Shop.');
-                    $this->warn('');
-                    $this->warn('To fix this:');
-                    $this->warn('1. Go to TikTok Shop Developer Portal');
-                    $this->warn('2. Navigate to your app settings');
-                    $this->warn('3. Add your server IP address to the IP allowlist');
-                    $this->warn('4. Save and wait a few minutes for changes to take effect');
-                    $this->warn('');
-                    $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
-                } else {
-                    $this->error('Error: ' . $errorMessage);
-                    $this->warn('💡 Check logs for detailed error information.');
-                }
-                
-                Log::error('TikTok sync: Shop cipher retrieval failed with exception', [
-                    'store_id' => $storeId,
-                    'error' => $errorMessage,
-                    'error_code' => $e->getCode(),
-                ]);
-                return Command::FAILURE;
-            }
+        $totalCount = 0;
+
+        foreach ($stores as $store) {
+            $this->info("Processing store: {$store->store_name} (ID: {$store->store_id})");
             
-            $this->info("✅ Shop cipher retrieved: {$shopCipher}");
+            try {
+                // Check if integration exists and has required data
+                if (!$store->refresh_token || !$store->app_id || !$store->app_secret) {
+                    $this->warn("⚠️ Missing integration data for store {$store->store_name} (ID: {$store->store_id}). Required: refresh_token, app_id, app_secret. Skipping.");
+                    Log::warning('TikTok sync: Missing integration data', [
+                        'store_id' => $store->store_id,
+                        'store_name' => $store->store_name,
+                        'has_refresh_token' => !empty($store->refresh_token),
+                        'has_app_id' => !empty($store->app_id),
+                        'has_app_secret' => !empty($store->app_secret),
+                    ]);
+                    continue;
+                }
 
-            // 3️⃣ Fetch orders list
-            $response = $tiktok->fetchOrders($accessToken, $shopCipher);
-            $orders = $response['orders'] ?? [];
+                $tiktok = new TikTokAuthService($store->store_id);
 
-            Log::info('TikTok Orders:', [
-                'orders' => json_encode($orders, JSON_PRETTY_PRINT)
-            ]);
+                // 1️⃣ Get access token
+                $accessToken = $tiktok->getAccessToken($store->store_id);
+                if (!$accessToken) {
+                    $this->error("❌ Failed to get/refresh TikTok access token for store {$store->store_name} (ID: {$store->store_id}). Please check integration setup.");
+                    Log::error("TikTok sync failed: Token refresh failed for store_id {$store->store_id}");
+                    continue;
+                }
 
-            if (empty($orders)) {
-                $this->warn('⚠️ No TikTok orders found.');
-                Log::warning('TikTok order sync: no orders found');
-                return 0;
-            }
+                // 2️⃣ Get shop cipher (use stored one if available, otherwise fetch from API)
+                $shopCipher = $store->shop_cipher;
+                
+                if (!$shopCipher) {
+                    try {
+                        $shopCipher = $tiktok->getAuthorizedShopCipher($store->store_id, $accessToken);
+                        if (!$shopCipher) {
+                            $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name} (ID: {$store->store_id}).");
+                            $this->warn('💡 Check logs for detailed error information.');
+                            Log::error('TikTok sync: Shop cipher retrieval failed', [
+                                'store_id' => $store->store_id,
+                                'access_token_present' => !empty($accessToken),
+                            ]);
+                            continue;
+                        }
+                    } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
+                        $errorMessage = $e->getMessage();
+                        $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name}.");
+                        
+                        if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+                            strpos($errorMessage, 'Access denied') !== false) {
+                            $this->error('');
+                            $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
+                            $this->error('Your server IP address is not whitelisted in TikTok Shop.');
+                            $this->warn('');
+                            $this->warn('To fix this:');
+                            $this->warn('1. Go to TikTok Shop Developer Portal');
+                            $this->warn('2. Navigate to your app settings');
+                            $this->warn('3. Add your server IP address to the IP allowlist');
+                            $this->warn('4. Save and wait a few minutes for changes to take effect');
+                            $this->warn('');
+                            $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
+                        } else {
+                            $this->error('Error: ' . $errorMessage);
+                            $this->warn('💡 Check logs for detailed error information.');
+                        }
+                        
+                        Log::error('TikTok sync: Shop cipher retrieval failed with exception', [
+                            'store_id' => $store->store_id,
+                            'error' => $errorMessage,
+                            'error_code' => $e->getCode(),
+                        ]);
+                        continue;
+                    } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
+                        $errorMessage = $e->getMessage();
+                        $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name}.");
+                        
+                        if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+                            strpos($errorMessage, 'Access denied') !== false) {
+                            $this->error('');
+                            $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
+                            $this->error('Your server IP address is not whitelisted in TikTok Shop.');
+                            $this->warn('');
+                            $this->warn('To fix this:');
+                            $this->warn('1. Go to TikTok Shop Developer Portal');
+                            $this->warn('2. Navigate to your app settings');
+                            $this->warn('3. Add your server IP address to the IP allowlist');
+                            $this->warn('4. Save and wait a few minutes for changes to take effect');
+                            $this->warn('');
+                            $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
+                        } else {
+                            $this->error('Error: ' . $errorMessage);
+                            $this->warn('💡 Check logs for detailed error information.');
+                        }
+                        
+                        Log::error('TikTok sync: Shop cipher retrieval failed with exception', [
+                            'store_id' => $store->store_id,
+                            'error' => $errorMessage,
+                            'error_code' => $e->getCode(),
+                        ]);
+                        continue;
+                    }
+                }
+                
+                $this->info("✅ Shop cipher retrieved: {$shopCipher}");
 
-            $count = 0;
-            foreach ($orders as $orderData) {
+                // 3️⃣ Fetch orders list
+                $response = $tiktok->fetchOrders($accessToken, $shopCipher);
+                $orders = $response['orders'] ?? [];
+
+                Log::info('TikTok Orders Fetched', [
+                    'store_id' => $store->store_id,
+                    'orders_count' => count($orders ?? [])
+                ]);
+
+                if (empty($orders)) {
+                    $this->info("⚠️ No TikTok orders found for store {$store->store_name}.");
+                    Log::info("TikTok order sync: no orders found for store_id {$store->store_id}");
+                    continue;
+                }
+
+                $storeCount = 0;
+                foreach ($orders as $orderData) {
                 try {
                     $orderId = $orderData['id'] ?? null;
                     if (!$orderId) continue;
@@ -174,7 +223,7 @@ class TikTokSyncOrders extends Command
                             'marketplace' => 'tiktok',
                         ],
                         [
-                            'store_id' => $storeId,
+                            'store_id' => $store->store_id,
                             'order_number' => $orderId,
                             'external_order_id' => $orderId,
                             'order_date' => isset($orderData['create_time'])
@@ -228,27 +277,53 @@ class TikTokSyncOrders extends Command
                     }
 
                     DB::commit();
-                    $count++;
-                    Log::info('✅ TikTok order synced', ['order_id' => $orderId]);
+                    $storeCount++;
+                    Log::info('✅ TikTok order synced', [
+                        'order_id' => $orderId,
+                        'store_id' => $store->store_id
+                    ]);
 
                 } catch (Exception $ex) {
                     DB::rollBack();
+                    $this->error("Error syncing TikTok order {$orderId}: " . $ex->getMessage());
                     Log::error('Error syncing TikTok order', [
                         'order_id' => $orderData['id'] ?? null,
+                        'store_id' => $store->store_id,
                         'error' => $ex->getMessage(),
+                        'trace' => $ex->getTraceAsString(),
                     ]);
                 }
+                }
+
+                $totalCount += $storeCount;
+                $this->info("✅ Synced {$storeCount} TikTok orders for store {$store->store_name}!");
+                Log::info('TikTok order sync completed for store', [
+                    'store_id' => $store->store_id,
+                    'store_name' => $store->store_name,
+                    'count' => $storeCount
+                ]);
+
+            } catch (Exception $e) {
+                $this->error("❌ TikTok order sync failed for store {$store->store_name}: " . $e->getMessage());
+                Log::error('TikTok order sync failed for store', [
+                    'store_id' => $store->store_id,
+                    'store_name' => $store->store_name,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                continue;
             }
-
-            $this->info("✅ Synced {$count} TikTok orders successfully!");
-            Log::info('TikTok order sync completed', ['count' => $count]);
-
-        } catch (Exception $e) {
-            $this->error('❌ TikTok order sync failed: ' . $e->getMessage());
-            Log::error('TikTok order sync failed', ['error' => $e->getMessage()]);
         }
 
-        return 0;
+        if ($totalCount > 0) {
+            $this->info("✅ Synced {$totalCount} TikTok orders successfully across all stores!");
+        } else {
+            $this->warn('⚠️ No TikTok orders were synced.');
+        }
+        
+        Log::info('TikTok order sync completed', ['total_count' => $totalCount]);
+
+        return Command::SUCCESS;
     }
 
     private function extractDistrict(array $recipient, string $level): ?string
