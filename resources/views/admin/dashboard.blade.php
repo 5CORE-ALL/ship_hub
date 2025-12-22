@@ -21,7 +21,7 @@
             <div class="card-body">
                 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-2 row-cols-xl-3 row-cols-xxl-3 g-3">
                     <div class="col">
-                        <div class="card radius-10 bg-info mb-0">
+                        <div class="card radius-10 bg-info mb-0" style="cursor: pointer;" data-bs-toggle="modal" data-bs-target="#marketplacesModal">
                             <div class="card-body text-center">
                                 <div class="widget-icon mx-auto mb-3 bg-white-1 text-white">
                                     <i class="bi bi-shop"></i>
@@ -294,6 +294,76 @@
     </div>
 </div><!--end row-->
 @endif
+
+<!-- Connected Marketplaces Modal -->
+<div class="modal fade" id="marketplacesModal" tabindex="-1" aria-labelledby="marketplacesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="marketplacesModalLabel">
+                    <i class="bi bi-shop me-2"></i>Connected Marketplaces
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    @forelse($connected_marketplaces_list as $marketplace)
+                        <div class="col-md-6 col-lg-4">
+                            <div class="d-flex align-items-center p-3 border rounded marketplace-item">
+                                @php
+                                    $value = strtolower(trim($marketplace));
+                                    $name = ucfirst($value);
+                                @endphp
+                                @if($value == 'amazon')
+                                    <i class="fab fa-amazon me-2 text-primary fs-5"></i><span>Amazon</span>
+                                @elseif($value == 'reverb')
+                                    <i class="fas fa-guitar me-2 text-primary fs-5"></i><span>Reverb</span>
+                                @elseif($value == 'walmart')
+                                    <i class="fas fa-store me-2 text-warning fs-5"></i><span>Walmart</span>
+                                @elseif($value == 'tiktok')
+                                    <i class="fab fa-tiktok me-2" style="color:#ee1d52;"></i><span>TikTok</span>
+                                @elseif($value == 'temu')
+                                    <i class="fas fa-shopping-bag me-2" style="color:#ff6200;"></i><span>Temu</span>
+                                @elseif($value == 'shopify')
+                                    <i class="fab fa-shopify me-2 text-success fs-5"></i><span>Shopify</span>
+                                @elseif($value == 'best buy usa')
+                                    <i class="fas fa-bolt me-2" style="color:#0046be;"></i><span>Best Buy USA</span>
+                                @elseif($value == "macy's, inc.")
+                                    <i class="fas fa-store me-2 text-info fs-5"></i><span>Macy's, Inc.</span>
+                                @elseif($value == 'pls')
+                                    <i class="fas fa-shopping-cart me-2 text-secondary fs-5"></i><span>PLS</span>
+                                @elseif(strpos($value, 'ebay') !== false)
+                                    <i class="fab fa-ebay me-2 text-danger fs-5"></i><span>{{ $marketplace }}</span>
+                                @else
+                                    <i class="fas fa-globe me-2 text-secondary fs-5"></i><span>{{ $marketplace }}</span>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <div class="col-12">
+                            <p class="text-center text-muted">No connected marketplaces found.</p>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.marketplace-item {
+    transition: all 0.3s ease;
+    background-color: #f8f9fa;
+}
+.marketplace-item:hover {
+    background-color: #e9ecef;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+</style>
 
 @endsection
 

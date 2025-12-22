@@ -143,6 +143,13 @@ $total_labels_created = Shipment::join('orders as o', 'shipments.order_id', '=',
     ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc.",'amazon'])
     ->distinct('marketplace')
     ->count('marketplace');
+    
+    $connected_marketplaces_list = Order::query()
+    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc.",'amazon'])
+    ->distinct('marketplace')
+    ->pluck('marketplace')
+    ->sort()
+    ->values();
     $dailySummary = DB::table('bulk_shipping_histories')
     ->selectRaw('DATE(created_at) as day')
     ->selectRaw('SUM(order_count) as total_labels')
@@ -164,6 +171,7 @@ $total_labels_created = Shipment::join('orders as o', 'shipments.order_id', '=',
         'pending_orders',
         'shipped_orders',
         'connected_marketplaces',
+        'connected_marketplaces_list',
         'total_labels_created',
         'dailySummary',
         'balance',
