@@ -557,19 +557,15 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
             SUM(order_items.width) as width,
             SUM(order_items.length) as length,
             SUM(order_items.weight) as weight,
-            order_shipping_rates.rate_id as default_rate_id,
-            order_shipping_rates.rate_id as default_currency,
-            order_shipping_rates.service as default_carrier,
-            order_shipping_rates.price as default_price,
-            order_shipping_rates.source as default_source
+            MAX(order_shipping_rates.rate_id) as default_rate_id,
+            MAX(order_shipping_rates.currency) as default_currency,
+            MAX(order_shipping_rates.carrier) as default_carrier,
+            MAX(order_shipping_rates.service) as default_service,
+            MAX(order_shipping_rates.price) as default_price,
+            MAX(order_shipping_rates.source) as default_source,
+            MAX(orders.shipping_rate_fetched) as shipping_rate_fetched
         ")
-        ->groupBy(
-            'orders.id',
-            'order_shipping_rates.rate_id',
-            'order_shipping_rates.service',
-            'order_shipping_rates.price',
-            'order_shipping_rates.source'
-        );
+        ->groupBy('orders.id');
 
     if (!empty($request->order)) {
         $orderColumnIndex = $request->order[0]['column'];

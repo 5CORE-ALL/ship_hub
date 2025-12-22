@@ -609,15 +609,20 @@
                     title: 'Default Rate',
                     render: function(data, type, row) {
                         let defaultCarrier = row.default_carrier || '—';
+                        let defaultService = row.default_service || '';
                         let defaultPrice = row.default_price != null ? `$${parseFloat(row.default_price).toFixed(2)}` : '—';
                         let defaultSource = row.default_source || '—';
-                        let disabledAttr = row.shipping_rate_fetched == 0 ? 'disabled' : '';
-                        let tooltipText = row.shipping_rate_fetched == 0
+                        let shippingRateFetched = row.shipping_rate_fetched !== undefined ? row.shipping_rate_fetched : (row.shipping_rate_fetched === 0 ? 0 : 1);
+                        let disabledAttr = shippingRateFetched == 0 || shippingRateFetched === false ? 'disabled' : '';
+                        let tooltipText = shippingRateFetched == 0 || shippingRateFetched === false
                             ? 'Rates not fetched yet'
                             : 'Change Carrier';
+                        let displayText = defaultCarrier !== '—' 
+                            ? `${defaultCarrier}${defaultService ? ' - ' + defaultService : ''} ${defaultPrice}`
+                            : '—';
                         return `
-                            <span>${defaultCarrier} ${defaultPrice}
-                                <small class="text-muted">(${defaultSource})</small>
+                            <span>${displayText}
+                                ${defaultSource !== '—' ? `<small class="text-muted">(${defaultSource})</small>` : ''}
                             </span>
                             <button
                                 class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
