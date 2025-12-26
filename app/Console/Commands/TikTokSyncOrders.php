@@ -102,11 +102,18 @@ class TikTokSyncOrders extends Command
                         $shopCipher = $tiktok->getAuthorizedShopCipher($store->store_id, $accessToken);
                         if (!$shopCipher) {
                             $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name} (ID: {$store->store_id}).");
-                            $this->warn('💡 Check logs for detailed error information.');
+                            $this->warn('');
+                            $this->warn('💡 Possible reasons:');
+                            $this->warn('   - IP address not whitelisted in TikTok Developer Portal');
+                            $this->warn('   - API returned empty response');
+                            $this->warn('   - Shop cipher field not found in API response');
                             $this->warn('');
                             $this->warn('🔧 WORKAROUND: If you know your shop_cipher, you can set it manually:');
                             $this->warn("   php artisan tinker");
                             $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
+                            $this->warn('');
+                            $this->warn('📋 Check Laravel logs for detailed error information:');
+                            $this->warn("   tail -f storage/logs/laravel.log | grep -i tiktok");
                             Log::error('TikTok sync: Shop cipher retrieval failed', [
                                 'store_id' => $store->store_id,
                                 'access_token_present' => !empty($accessToken),
@@ -189,6 +196,29 @@ class TikTokSyncOrders extends Command
                             'error_code' => $e->getCode(),
                             'exception_class' => get_class($e),
                             'trace' => $e->getTraceAsString(),
+                        ]);
+                        continue;
+                    } catch (\Exception $e) {
+                        $errorMessage = $e->getMessage();
+                        $this->error("❌ Unexpected error getting TikTok shop cipher for store {$store->store_name}.");
+                        $this->error('');
+                        $this->error('📋 ACTUAL ERROR MESSAGE:');
+                        $this->error($errorMessage);
+                        $this->error('');
+                        $this->error('📋 Exception Type: ' . get_class($e));
+                        $this->warn('');
+                        $this->warn('🔧 WORKAROUND: If you know your shop_cipher, you can set it manually:');
+                        $this->warn("   php artisan tinker");
+                        $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
+                        
+                        Log::error('TikTok sync: Shop cipher retrieval failed with unexpected exception', [
+                            'store_id' => $store->store_id,
+                            'error' => $errorMessage,
+                            'error_code' => $e->getCode(),
+                            'exception_class' => get_class($e),
+                            'trace' => $e->getTraceAsString(),
+                            'file' => $e->getFile(),
+                            'line' => $e->getLine(),
                         ]);
                         continue;
                     }

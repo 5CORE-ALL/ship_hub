@@ -286,8 +286,9 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
                 'error' => $errorMessage,
                 'error_code' => $e->getCode(),
             ]);
+            // Re-throw so command can display the error
+            throw $e;
         }
-        return null;
     } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
         $errorMessage = $e->getMessage();
         
@@ -308,8 +309,9 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
                 'error' => $errorMessage,
                 'error_code' => $e->getCode(),
             ]);
+            // Re-throw so command can display the error
+            throw $e;
         }
-        return null;
     } catch (\Exception $e) {
         Log::error('TikTok Get Authorized Shop Cipher Exception', [
             'store_id' => $storeId,
@@ -319,7 +321,8 @@ public function getAuthorizedShopCipher(int $storeId, string $accessToken = null
             'file'      => $e->getFile(),
             'line'      => $e->getLine(),
         ]);
-        return null;
+        // Re-throw so command can display the error
+        throw $e;
     }
 }
 
