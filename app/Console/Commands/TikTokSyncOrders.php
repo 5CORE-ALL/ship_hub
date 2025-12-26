@@ -81,13 +81,22 @@ class TikTokSyncOrders extends Command
 
                 $tiktok = new TikTokAuthService($store->store_id);
 
-                // 1️⃣ Get access token
-                $accessToken = $tiktok->getAccessToken($store->store_id);
+                // 1️⃣ Get access token (force refresh if expired_at is in the past)
+                $forceRefresh = false;
+                if ($store->expires_at && Carbon::parse($store->expires_at)->isPast()) {
+                    $this->info("🔄 Access token expired. Refreshing...");
+                    $forceRefresh = true;
+                }
+                
+                $accessToken = $tiktok->getAccessToken($store->store_id, $forceRefresh);
                 if (!$accessToken) {
                     $this->error("❌ Failed to get/refresh TikTok access token for store {$store->store_name} (ID: {$store->store_id}). Please check integration setup.");
+                    $this->warn("💡 Make sure your refresh_token is valid in the integrations table.");
                     Log::error("TikTok sync failed: Token refresh failed for store_id {$store->store_id}");
                     continue;
                 }
+                
+                $this->info("✅ Access token retrieved successfully");
 
                 // 2️⃣ Get shop cipher (use stored one if available, otherwise fetch from API)
                 $shopCipher = $store->shop_cipher;
@@ -98,30 +107,56 @@ class TikTokSyncOrders extends Command
                     $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
                     $this->newLine();
                     
-                    try {
-                        $shopCipher = $tiktok->getAuthorizedShopCipher($store->store_id, $accessToken);
-                        if (!$shopCipher) {
-                            $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name} (ID: {$store->store_id}).");
-                            $this->warn('');
-                            $this->warn('💡 Possible reasons:');
-                            $this->warn('   - IP address not whitelisted in TikTok Developer Portal');
-                            $this->warn('   - API returned empty response');
-                            $this->warn('   - Shop cipher field not found in API response');
-                            $this->warn('');
-                            $this->warn('🔧 WORKAROUND: If you know your shop_cipher, you can set it manually:');
-                            $this->warn("   php artisan tinker");
-                            $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
-                            $this->warn('');
-                            $this->warn('📋 Check Laravel logs for detailed error information:');
-                            $this->warn("   tail -f storage/logs/laravel.log | grep -i tiktok");
-                            Log::error('TikTok sync: Shop cipher retrieval failed', [
-                                'store_id' => $store->store_id,
-                                'access_token_present' => !empty($accessToken),
-                            ]);
-                            continue;
-                        }
-                    } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
+                    $maxRetries = 2;
+                    $retryCount = 0;
+                    
+                    while ($retryCount < $maxRetries && !$shopCipher) {
+                        try {
+                            $shopCipher = $tiktok->getAuthorizedShopCipher($store->store_id, $accessToken);
+                            if ($shopCipher) {
+                                break; // Success, exit retry loop
+                            }
+                            
+                            // If we get here, shopCipher is null but no exception was thrown
+                            $this->warn("⚠️ API call succeeded but shop_cipher not found in response. Retrying...");
+                            $retryCount++;
+                            if ($retryCount >= $maxRetries) {
+                                $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name} (ID: {$store->store_id}).");
+                                $this->warn('');
+                                $this->warn('💡 Possible reasons:');
+                                $this->warn('   - IP address not whitelisted in TikTok Developer Portal');
+                                $this->warn('   - API returned empty response');
+                                $this->warn('   - Shop cipher field not found in API response');
+                                $this->warn('');
+                                $this->warn('🔧 WORKAROUND: If you know your shop_cipher, you can set it manually:');
+                                $this->warn("   php artisan tinker");
+                                $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
+                                $this->warn('');
+                                $this->warn('📋 Check Laravel logs for detailed error information:');
+                                $this->warn("   tail -f storage/logs/laravel.log | grep -i tiktok");
+                                Log::error('TikTok sync: Shop cipher retrieval failed', [
+                                    'store_id' => $store->store_id,
+                                    'access_token_present' => !empty($accessToken),
+                                ]);
+                                break; // Exit retry loop
+                            }
+                        } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
                         $errorMessage = $e->getMessage();
+                        
+                        // Check if it's an expired token error
+                        $isExpiredToken = strpos($errorMessage, 'expired') !== false || 
+                                         strpos($errorMessage, 'Expired credentials') !== false;
+                        
+                        if ($isExpiredToken && $retryCount < $maxRetries - 1) {
+                            $this->warn("🔄 Token expired. Refreshing and retrying... (Attempt " . ($retryCount + 2) . "/{$maxRetries})");
+                            // Force refresh the token
+                            $accessToken = $tiktok->getAccessToken($store->store_id, true);
+                            if ($accessToken) {
+                                $retryCount++;
+                                continue; // Retry with new token
+                            }
+                        }
+                        
                         $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name}.");
                         $this->error('');
                         $this->error('📋 ACTUAL ERROR MESSAGE:');
@@ -158,9 +193,24 @@ class TikTokSyncOrders extends Command
                             'exception_class' => get_class($e),
                             'trace' => $e->getTraceAsString(),
                         ]);
-                        continue;
+                        break; // Exit retry loop
                     } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
                         $errorMessage = $e->getMessage();
+                        
+                        // Check if it's an expired token error
+                        $isExpiredToken = strpos($errorMessage, 'expired') !== false || 
+                                         strpos($errorMessage, 'Expired credentials') !== false;
+                        
+                        if ($isExpiredToken && $retryCount < $maxRetries - 1) {
+                            $this->warn("🔄 Token expired. Refreshing and retrying... (Attempt " . ($retryCount + 2) . "/{$maxRetries})");
+                            // Force refresh the token
+                            $accessToken = $tiktok->getAccessToken($store->store_id, true);
+                            if ($accessToken) {
+                                $retryCount++;
+                                continue; // Retry with new token
+                            }
+                        }
+                        
                         $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name}.");
                         $this->error('');
                         $this->error('📋 ACTUAL ERROR MESSAGE:');
@@ -197,7 +247,7 @@ class TikTokSyncOrders extends Command
                             'exception_class' => get_class($e),
                             'trace' => $e->getTraceAsString(),
                         ]);
-                        continue;
+                        break; // Exit retry loop
                     } catch (\Exception $e) {
                         $errorMessage = $e->getMessage();
                         $this->error("❌ Unexpected error getting TikTok shop cipher for store {$store->store_name}.");
@@ -220,7 +270,13 @@ class TikTokSyncOrders extends Command
                             'file' => $e->getFile(),
                             'line' => $e->getLine(),
                         ]);
-                        continue;
+                        break; // Exit retry loop
+                    }
+                    } // End while retry loop
+                    
+                    if (!$shopCipher) {
+                        $this->error("❌ Failed to get shop cipher after {$maxRetries} attempts.");
+                        continue; // Skip to next store
                     }
                 }
                 

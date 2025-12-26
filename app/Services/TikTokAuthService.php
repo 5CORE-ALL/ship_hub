@@ -76,28 +76,47 @@ class TikTokAuthService
             return null;
         }
     }
-    public function getAccessToken(int $storeId): ?string
+    public function getAccessToken(int $storeId, bool $forceRefresh = false): ?string
     {
         $integration = DB::table('integrations')->where('store_id', $storeId)->first();
 
         if (!$integration || !$integration->refresh_token) {
             return null; 
         }
-        if (!empty($integration->access_token) && $integration->expires_at && Carbon::parse($integration->expires_at)->gt(now())) {
+        
+        // If force refresh is not requested, check if token is still valid
+        if (!$forceRefresh && !empty($integration->access_token) && $integration->expires_at && Carbon::parse($integration->expires_at)->gt(now())) {
             return $integration->access_token;
         }
+        
+        // Token expired or force refresh requested - get new token
+        Log::info("Refreshing TikTok access token for store {$storeId}", [
+            'force_refresh' => $forceRefresh,
+            'expires_at' => $integration->expires_at,
+            'is_expired' => $integration->expires_at ? Carbon::parse($integration->expires_at)->isPast() : 'unknown',
+        ]);
+        
         $newTokenData = $this->refreshToken($integration->refresh_token);
 
         if (!empty($newTokenData['access_token'])) {
+            // Calculate expiration - TikTok tokens typically expire in 7 days, but use actual expire_in if provided
+            $expiresIn = $newTokenData['expire_in'] ?? (7 * 24 * 60 * 60); // Default 7 days in seconds
+            $expiresAt = now()->addSeconds($expiresIn - 300); // Subtract 5 minutes as buffer
+            
             DB::table('integrations')->where('store_id', $storeId)->update([
                 'access_token' => $newTokenData['access_token'],
                 'refresh_token'=> $newTokenData['refresh_token'] ?? $integration->refresh_token,
-                'expires_at'   => now()->addDays(7), 
+                'expires_at'   => $expiresAt, 
                 'updated_at'   => now(),
+            ]);
+
+            Log::info("TikTok access token refreshed successfully for store {$storeId}", [
+                'expires_at' => $expiresAt,
             ]);
 
             return $newTokenData['access_token'];
         }
+        
         Log::warning("TikTok token refresh failed for store {$storeId}", [
             'response' => $newTokenData
         ]);
