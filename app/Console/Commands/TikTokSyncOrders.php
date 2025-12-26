@@ -93,11 +93,20 @@ class TikTokSyncOrders extends Command
                 $shopCipher = $store->shop_cipher;
                 
                 if (!$shopCipher) {
+                    $this->warn("⚠️ Shop cipher not found in database. Attempting to fetch from TikTok API...");
+                    $this->warn("💡 If you know your shop_cipher, you can manually set it in the database:");
+                    $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
+                    $this->newLine();
+                    
                     try {
                         $shopCipher = $tiktok->getAuthorizedShopCipher($store->store_id, $accessToken);
                         if (!$shopCipher) {
                             $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name} (ID: {$store->store_id}).");
                             $this->warn('💡 Check logs for detailed error information.');
+                            $this->warn('');
+                            $this->warn('🔧 WORKAROUND: If you know your shop_cipher, you can set it manually:');
+                            $this->warn("   php artisan tinker");
+                            $this->warn("   DB::table('integrations')->where('store_id', {$store->store_id})->update(['shop_cipher' => 'YOUR_SHOP_CIPHER']);");
                             Log::error('TikTok sync: Shop cipher retrieval failed', [
                                 'store_id' => $store->store_id,
                                 'access_token_present' => !empty($accessToken),
@@ -107,10 +116,19 @@ class TikTokSyncOrders extends Command
                     } catch (\EcomPHP\TiktokShop\Errors\TokenException $e) {
                         $errorMessage = $e->getMessage();
                         $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name}.");
+                        $this->error('');
+                        $this->error('📋 ACTUAL ERROR MESSAGE:');
+                        $this->error($errorMessage);
+                        $this->error('');
                         
-                        if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
-                            strpos($errorMessage, 'Access denied') !== false) {
-                            $this->error('');
+                        // Check if it's actually an IP allowlist error
+                        $isIpError = strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+                                    strpos($errorMessage, 'Access denied') !== false ||
+                                    strpos($errorMessage, 'IP allowlist') !== false ||
+                                    strpos($errorMessage, 'IP whitelist') !== false ||
+                                    strpos($errorMessage, 'not whitelisted') !== false;
+                        
+                        if ($isIpError) {
                             $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
                             $this->error('Your server IP address is not whitelisted in TikTok Shop.');
                             $this->warn('');
@@ -122,7 +140,7 @@ class TikTokSyncOrders extends Command
                             $this->warn('');
                             $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
                         } else {
-                            $this->error('Error: ' . $errorMessage);
+                            $this->warn('⚠️ This might not be an IP allowlist issue. Check the error message above.');
                             $this->warn('💡 Check logs for detailed error information.');
                         }
                         
@@ -130,15 +148,26 @@ class TikTokSyncOrders extends Command
                             'store_id' => $store->store_id,
                             'error' => $errorMessage,
                             'error_code' => $e->getCode(),
+                            'exception_class' => get_class($e),
+                            'trace' => $e->getTraceAsString(),
                         ]);
                         continue;
                     } catch (\EcomPHP\TiktokShop\Errors\ResponseException $e) {
                         $errorMessage = $e->getMessage();
                         $this->error("❌ Failed to get TikTok shop cipher for store {$store->store_name}.");
+                        $this->error('');
+                        $this->error('📋 ACTUAL ERROR MESSAGE:');
+                        $this->error($errorMessage);
+                        $this->error('');
                         
-                        if (strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
-                            strpos($errorMessage, 'Access denied') !== false) {
-                            $this->error('');
+                        // Check if it's actually an IP allowlist error
+                        $isIpError = strpos($errorMessage, 'IP address is not in the IP allow list') !== false || 
+                                    strpos($errorMessage, 'Access denied') !== false ||
+                                    strpos($errorMessage, 'IP allowlist') !== false ||
+                                    strpos($errorMessage, 'IP whitelist') !== false ||
+                                    strpos($errorMessage, 'not whitelisted') !== false;
+                        
+                        if ($isIpError) {
                             $this->error('🔒 IP ALLOWLIST ERROR DETECTED');
                             $this->error('Your server IP address is not whitelisted in TikTok Shop.');
                             $this->warn('');
@@ -150,7 +179,7 @@ class TikTokSyncOrders extends Command
                             $this->warn('');
                             $this->info('💡 For more details: https://m.tiktok.shop/s/AIu6dbFhs2XW');
                         } else {
-                            $this->error('Error: ' . $errorMessage);
+                            $this->warn('⚠️ This might not be an IP allowlist issue. Check the error message above.');
                             $this->warn('💡 Check logs for detailed error information.');
                         }
                         
@@ -158,6 +187,8 @@ class TikTokSyncOrders extends Command
                             'store_id' => $store->store_id,
                             'error' => $errorMessage,
                             'error_code' => $e->getCode(),
+                            'exception_class' => get_class($e),
+                            'trace' => $e->getTraceAsString(),
                         ]);
                         continue;
                     }
