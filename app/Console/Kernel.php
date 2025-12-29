@@ -17,10 +17,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('shipments:update-tracking')->everyMinute();
         $schedule->command('shipping:fetch-default-rates')->everyMinute();
         $schedule->command('ebay:sync-orders')->everyMinute(); 
-        // $schedule->command('shopify:sync-orders')->cron('5,35 * * * *');   
-        if (config('services.walmart.sync_enabled', true)) {
-            $schedule->command('walmart:sync-orders')->cron('10,40 * * * *');  
-        }
+        $schedule->command('shopify:sync-orders')->cron('5,35 * * * *');   
         $schedule->command('reverb:sync-orders')->cron('15,45 * * * *');   
         $schedule->command('macys:sync-orders')->cron('13,48 * * * *');   
         $schedule->command('aliexpress:sync-orders')->everyMinute();

@@ -159,16 +159,12 @@ class ShippingLabelService
                             ],
                         ],
                         "receiver" => [
-                            "contact" => [
+                            "contact" => array_filter([
                                 "name" => $order->recipient_name,
-                                "email" =>
-                                    $order->recipient_email ??
-                                    "recipient@example.com",
-                                "phone" =>
-                                    $order->recipient_phone ?? "1111111111",
                                 "company" => $order->items->isNotEmpty()
                                     ? "($skuQtyString)"
-                                    : "",
+                                    : null,
+                            ], fn($value) => $value !== null),
                             ],
                             "address" => [
                                 "country" => !empty($order->ship_country)
