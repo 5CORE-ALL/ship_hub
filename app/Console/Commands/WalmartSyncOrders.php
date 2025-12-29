@@ -17,6 +17,12 @@ class WalmartSyncOrders extends Command
 
     public function handle()
     {
+        // Check if Walmart sync is disabled via environment variable
+        if (config('services.walmart.sync_enabled', true) === false) {
+            $this->info('⏸️  Walmart order sync is disabled. Set WALMART_SYNC_ENABLED=true to enable.');
+            return;
+        }
+
         $this->info('🔄 Starting Walmart orders sync...');
         $tokenData = $this->refreshAccessToken();
         if (!$tokenData || !isset($tokenData['accessToken'])) {

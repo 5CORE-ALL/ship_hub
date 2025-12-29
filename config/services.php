@@ -32,6 +32,7 @@ return [
       'client_id' => env('WALMART_CLIENT_ID'),
       'client_secret' => env('WALMART_CLIENT_SECRET'),
       'url' => env('WALMART_API_URL', 'https://marketplace.walmartapis.com'),
+      'sync_enabled' => env('WALMART_SYNC_ENABLED', true),
     ],
 
     'sendle' => [
