@@ -99,11 +99,21 @@ class ShippingLabelService
                 $carrier = $cheapestRate->carrier;
 
                 $shipper = Shipper::first();
-                $orderWeightLb = $order->weight ?? 1.0;
+                
+                // Calculate weight and dimensions from order items using original values
+                $orderWeightLb = $order->items->sum(function($item) {
+                    return $item->original_weight ?? $item->weight ?? 0;
+                }) ?: 1.0;
                 $weightInKg = round($orderWeightLb * 0.453592, 2);
-                $length = $order->length ?? 20;
-                $width = $order->width ?? 15;
-                $height = $order->height ?? 10;
+                $length = $order->items->sum(function($item) {
+                    return $item->original_length ?? $item->length ?? 0;
+                }) ?: 20;
+                $width = $order->items->sum(function($item) {
+                    return $item->original_width ?? $item->width ?? 0;
+                }) ?: 15;
+                $height = $order->items->sum(function($item) {
+                    return $item->original_height ?? $item->height ?? 0;
+                }) ?: 10;
 
                 $provider = strtolower($source);
                 Log::info("Provider value: " . $provider);

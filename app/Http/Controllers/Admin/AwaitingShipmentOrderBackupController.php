@@ -554,10 +554,10 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                     THEN MAX(order_items.sku)
                 ELSE CONCAT(COUNT(order_items.id), ' items')
             END as sku,
-            SUM(order_items.height) as height,
-            SUM(order_items.width) as width,
-            SUM(order_items.length) as length,
-            SUM(order_items.weight) as weight,
+            SUM(COALESCE(order_items.original_height, order_items.height)) as height,
+            SUM(COALESCE(order_items.original_width, order_items.width)) as width,
+            SUM(COALESCE(order_items.original_length, order_items.length)) as length,
+            SUM(COALESCE(order_items.original_weight, order_items.weight)) as weight,
             MAX(order_shipping_rates.rate_id) as default_rate_id,
             MAX(order_shipping_rates.currency) as default_currency,
             MAX(order_shipping_rates.carrier) as default_carrier,
@@ -953,12 +953,20 @@ public function getOrderDetails($orderId)
 {
     $order = Order::with(['items', 'cheapestRate'])->findOrFail($orderId);
 
-    // Calculate totals for dimensions and weight
+    // Calculate totals for dimensions and weight using original values
     $totals = [
-        'height' => $order->items->sum('height'),
-        'width'  => $order->items->sum('width'),
-        'length' => $order->items->sum('length'),
-        'weight' => $order->items->sum('weight'),
+        'height' => $order->items->sum(function($item) {
+            return $item->original_height ?? $item->height ?? 0;
+        }),
+        'width'  => $order->items->sum(function($item) {
+            return $item->original_width ?? $item->width ?? 0;
+        }),
+        'length' => $order->items->sum(function($item) {
+            return $item->original_length ?? $item->length ?? 0;
+        }),
+        'weight' => $order->items->sum(function($item) {
+            return $item->original_weight ?? $item->weight ?? 0;
+        }),
     ];
 
     $response = [
@@ -970,10 +978,10 @@ public function getOrderDetails($orderId)
                 'product_name' => $item->product_name,
                 'sku' => $item->sku,
                 'quantity' => $item->quantity_ordered ?? 1,
-                'height' => $item->height,
-                'width' => $item->width,
-                'length' => $item->length,
-                'weight' => $item->weight,
+                'height' => $item->original_height ?? $item->height,
+                'width' => $item->original_width ?? $item->width,
+                'length' => $item->original_length ?? $item->length,
+                'weight' => $item->original_weight ?? $item->weight,
             ];
         }),
         'totals' => $totals,
