@@ -165,7 +165,6 @@ class ShippingLabelService
                                     ? "($skuQtyString)"
                                     : null,
                             ], fn($value) => $value !== null),
-                            ],
                             "address" => [
                                 "country" => !empty($order->ship_country)
                                     ? $order->ship_country
