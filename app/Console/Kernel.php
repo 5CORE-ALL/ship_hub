@@ -26,6 +26,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('aliexpress:sync-orders')->everyMinute();
         $schedule->command('amazon:sync-orders')->cron('10,40 * * * *');
         $schedule->command('tiktok:sync-order')->everyMinute();
+        $schedule->command('tiktok:sync-orders')->cron('20,50 * * * *');
         
         // $schedule->command('Sync orders from Shopify API (FiveCore Business)')->cron('20,50 * * * *'); 
         $schedule->command('app:sync-ship-station-carriers')->everyThirtyMinutes(); 

@@ -279,15 +279,14 @@ public function buyLabel(Request $request)
         if ($request->has('shipFrom')) {
             $shipper = Shipper::find($request->shipFrom);
         }
+
+    try {
+         $order = Order::findOrFail($request->order_id);
         $length = $request->input('length', $order->cost->length ?? 4.0);
         $width = $request->input('width', $order->cost->width ?? 4.0);
         $height = $request->input('height', $order->cost->height ?? 7.0);
         $weight = $request->input('weight', $order->cost->wt_act ?? 0.25);
         $platform = $request->input('platform', 'shipstation');
-
-
-    try {
-         $order = Order::findOrFail($request->order_id);
         if ($platform === 'shipstation') {
            $shipStation = new ShipStationService();
            $label = $shipStation->createLabelByRateId($request->rate_id);
@@ -298,13 +297,15 @@ public function buyLabel(Request $request)
                     'rate_id'  => $request->rate_id,
                     'response' => $label,
                 ]);
-               if (isset($response['success']) && $response['success'] === false ||
-                    isset($response['response']['errors'])) {
+               if (isset($label['success']) && $label['success'] === false ||
+                    isset($label['error'])) {
                     $errorMessage = "Label purchase failed.";
-                    if (isset($response['response']['errors'][0]['message'])) {
-                        $errorMessage = $response['response']['errors'][0]['message'];
-                    } elseif (isset($response['error']['errors'][0]['message'])) {
-                        $errorMessage = $response['error']['errors'][0]['message'];
+                    if (isset($label['error']['errors']) && is_array($label['error']['errors']) && isset($label['error']['errors'][0]['message'])) {
+                        $errorMessage = $label['error']['errors'][0]['message'];
+                    } elseif (isset($label['error']['message'])) {
+                        $errorMessage = $label['error']['message'];
+                    } elseif (is_string($label['error'])) {
+                        $errorMessage = $label['error'];
                     }
 
                     return response()->json([
