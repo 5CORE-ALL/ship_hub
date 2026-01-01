@@ -112,15 +112,34 @@ class ShippingLabelController extends Controller
         ]);
     }
 
-    BulkBuyShippingJob::dispatch($orderIds,Auth::user()->id ?? 1);
-    Log::info('BulkBuyShippingJob dispatched successfully.', [
-        'order_ids' => $orderIds
-    ]);
+    try {
+        $result = $this->shippingLabelService->createLabels($orderIds, Auth::user()->id ?? 1);
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Bulk shipping job has been queued. It will run in the background.'
-    ]);
+        Log::info('Bulk shipping completed.', [
+            'summary' => $result['summary'] ?? []
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Bulk shipping purchased successfully.',
+            'labels' => $result
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Bulk shipping error: ' . $e->getMessage(), [
+            'order_ids' => $orderIds
+        ]);
+
+        // Unlock orders on error
+        Order::whereIn('id', $orderIds)->update(['queue' => 0]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to buy bulk shipping: ' . $e->getMessage()
+        ]);
+    } finally {
+        // Unlock orders
+        Order::whereIn('id', $orderIds)->update(['queue' => 0]);
+    }
 }
 
     public function verifyAddress(Request $request)
