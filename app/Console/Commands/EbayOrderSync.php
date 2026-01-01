@@ -123,6 +123,14 @@ class EbayOrderSync extends Command
             do {
                 $this->info("Fetching page {$page} for store {$store->store_name}...");
                 
+                // Refresh access token for each page to avoid expiration
+                $accessToken = $ebayService->getAccessToken($store->store_id);
+                if (!$accessToken) {
+                    $this->warn("⚠️ Failed to get access token for store {$store->store_name}. Skipping.");
+                    break;
+                }
+                $store->access_token = $accessToken;
+                
                 $response = Http::withToken($store->access_token)
                     ->timeout(7) 
                     ->get($endpoint, [
@@ -204,26 +212,33 @@ class EbayOrderSync extends Command
 
                         // Fetch fulfillment details if available
                         if (!empty($order['fulfillmentHrefs'][0]) && !str_ends_with($order['fulfillmentHrefs'][0], '/shipping_fulfillment/')) {
-                            // CORRECTION: Timeout should be on the request builder, not response
-                            $fulfillmentResponse = Http::withToken($store->access_token)
-                                ->timeout(10) // Set timeout for individual fulfillment requests
-                                ->get($order['fulfillmentHrefs'][0]);
+                            try {
+                                // CORRECTION: Timeout should be on the request builder, not response
+                                $fulfillmentResponse = Http::withToken($store->access_token)
+                                    ->timeout(30) // Increased timeout for individual fulfillment requests
+                                    ->get($order['fulfillmentHrefs'][0]);
 
-                            if ($fulfillmentResponse->successful()) {
-                                $fulfillmentData = $fulfillmentResponse->json();
-                                $trackingNumber = $fulfillmentData['shipmentTrackingNumber'] ?? null;
-                                $shippingCarrier = $fulfillmentData['shippingCarrier'] ?? null;
+                                if ($fulfillmentResponse->successful()) {
+                                    $fulfillmentData = $fulfillmentResponse->json();
+                                    $trackingNumber = $fulfillmentData['shipmentTrackingNumber'] ?? null;
+                                    $shippingCarrier = $fulfillmentData['shippingCarrier'] ?? null;
 
-                                // Log::info('eBay Tracking Number', [
-                                //     'order_id' => $orderId,
-                                //     'tracking_number' => $trackingNumber,
-                                //     'carrier' => $shippingCarrier,
-                                // ]);
-                            } else {
-                                Log::warning('Failed to fetch fulfillment details', [
+                                    // Log::info('eBay Tracking Number', [
+                                    //     'order_id' => $orderId,
+                                    //     'tracking_number' => $trackingNumber,
+                                    //     'carrier' => $shippingCarrier,
+                                    // ]);
+                                } else {
+                                    Log::warning('Failed to fetch fulfillment details', [
+                                        'order_id' => $orderId,
+                                        'response_status' => $fulfillmentResponse->status(),
+                                        'response_body' => $fulfillmentResponse->body(),
+                                    ]);
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning('Timeout or error fetching fulfillment details', [
                                     'order_id' => $orderId,
-                                    'response_status' => $fulfillmentResponse->status(),
-                                    'response_body' => $fulfillmentResponse->body(),
+                                    'error' => $e->getMessage(),
                                 ]);
                             }
                         }
