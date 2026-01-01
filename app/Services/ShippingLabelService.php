@@ -281,20 +281,13 @@ class ShippingLabelService
                             "updated_at" => now(),
                         ]);
                     } else {
-                        $successCount++;
                         $trackingNumber = isset($label["raw"]["tracking_url"])
                             ? getSendleLocalTrackingId(
                                 $label["raw"]["tracking_url"]
                             )
                             : null;
-                        try {
-                            $order = \App\Models\Order::find($order->id);
 
-                            if (! $order) {
-                               Log::error("❌ Order not found for ID: {$orderId}");
-                                // return null;
-                            }
-
+                        DB::transaction(function () use ($order, $label, $trackingNumber, $userId) {
                             $order->update([
                                 "label_id" => $label["label_id"] ?? null,
                                 "tracking_number" => $trackingNumber ?? null,
@@ -310,66 +303,28 @@ class ShippingLabelService
                                 "printing_status" => 1,
                             ]);
 
-                            Log::info("✅ Order {$order->id} updated successfully after label creation");
-                        } catch (\Throwable $e) {
-                            Log::error("❌ Failed to update order {$orderId}: " . $e->getMessage(), [
-                                'trace' => $e->getTraceAsString(),
-                                'label_response' => $label ?? null,
+                            Shipment::create([
+                                "order_id" => $order->id,
+                                "tracking_number" => $trackingNumber,
+                                "carrier" => detectCarrier($trackingNumber) ?: 'Standard',
+                                "label_id" => $label["label_id"] ?? null,
+                                "service_type" => $label["raw"]["service_code"] ?? null,
+                                "package_weight" => $label["raw"]["packages"][0]["weight"]["value"] ?? null,
+                                "package_dimensions" => json_encode($label["raw"]["packages"][0]["dimensions"] ?? []),
+                                "label_url" => $label["labelUrl"] ?? null,
+                                "shipment_status" => "created",
+                                "label_data" => json_encode($label),
+                                "ship_date" => now(),
+                                "cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
+                                "currency" => $label["raw"]["shipment_cost"]["currency"] ?? "USD",
+                                "tracking_url" => $label["raw"]["tracking_url"] ?? null,
+                                "label_status" => "active",
+                                "void_status" => "active",
+                                "created_by" => $userId
                             ]);
-                        }
 
-
-                        // $order->update([
-                        //     "label_id" => $label["label_id"] ?? null,
-                        //     "tracking_number" => $trackingNumber,
-                        //     "label_url" => $label["labelUrl"] ?? null,
-                        //     "shipping_carrier" =>
-                        //         $label["raw"]["carrier_code"] ?? "sendle",
-                        //     "shipping_service" =>
-                        //         $label["raw"]["service_code"] ?? null,
-                        //     "shipping_cost" =>
-                        //         $label["raw"]["shipment_cost"]["amount"] ?? 0,
-                        //     "ship_date" => $label["shipDate"] ?? now(),
-                        //     "label_status" => "purchased",
-                        //     "label_source" => "api",
-                        //     "fulfillment_status" => "shipped",
-                        //     "order_status" => "Shipped",
-                        //     "printing_status" => 1,
-                        // ]);
-
-                        $shipment = Shipment::create([
-                            "order_id" => $order->id,
-                            "tracking_number" => $trackingNumber,
-                            "carrier" => detectCarrier($trackingNumber) ?: 'Standard',
-                            "label_id" => $label["label_id"] ?? null,
-                            "service_type" =>
-                                $label["raw"]["service_code"] ?? null,
-                            "package_weight" =>
-                                $label["raw"]["packages"][0]["weight"][
-                                    "value"
-                                ] ?? null,
-                            "package_dimensions" => json_encode(
-                                $label["raw"]["packages"][0]["dimensions"] ?? []
-                            ),
-                            "label_url" => $label["labelUrl"] ?? null,
-                            "shipment_status" => "created",
-                            "label_data" => json_encode($label),
-                            "ship_date" => now(),
-                            "cost" =>
-                                $label["raw"]["shipment_cost"]["amount"] ?? 0,
-                            "currency" =>
-                                $label["raw"]["shipment_cost"]["currency"] ??
-                                "USD",
-                            "tracking_url" =>
-                                $label["raw"]["tracking_url"] ?? null,
-                            "label_status" => "active",
-                            "void_status" => "active",
-                            "created_by"=>$userId
-                        ]);
-
-                        // Sync tracking number to platform
-                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
-                            try {
+                            // Sync tracking number to platform
+                            if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
                                 $this->fulfillmentRepo->createFulfillment(
                                     $order->marketplace,
                                     $order->store_id ?? 0,
@@ -378,11 +333,11 @@ class ShippingLabelService
                                     detectCarrier($trackingNumber),
                                     $label["raw"]["service_code"] ?? null
                                 );
-                                Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
-                            } catch (\Exception $e) {
-                                Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
                             }
-                        }
+                        });
+
+                        $successCount++;
+                        Log::info("✅ Order {$order->id} and shipment created successfully");
 
                         $result = [
                             "success" => true,
