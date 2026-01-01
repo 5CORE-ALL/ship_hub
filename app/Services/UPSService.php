@@ -288,7 +288,7 @@ public function createShipment($params)
                     ],
                     "Package" => [
                         [
-                            "Description" => $params['package_description'] ?? $params['item_sku'],
+                            "Description" => $this->buildPackageDescription($params),
                             "Packaging" => [
                                 "Code" => $params['packaging_code'] ?? "02",
                                 "Description" => $params['packaging_description'] ?? "Customer Packaging"
@@ -309,12 +309,7 @@ public function createShipment($params)
                                 ],
                                 "Weight" => (string)($params['weight'] ?? "1"),
                             ],
-                           "ReferenceNumber" => $params['reference_numbers'] ?? [
-                                [
-                                    "Code"  => "PO",
-                                    "Value" => !empty($params['item_sku']) ? $params['item_sku'] : '-'
-                                ]
-                            ]
+                           "ReferenceNumber" => $params['reference_numbers'] ?? $this->buildReferenceNumbers($params)
                         ]
                     ]
                 ],
@@ -560,6 +555,72 @@ protected function buildAddressLines($addressLine1, $addressLine2 = null)
     }
     
     return $addressLines;
+}
+
+/**
+ * Build ReferenceNumber array with SKU and quantity
+ * 
+ * @param array $params Parameters containing item_sku and item_quantity
+ * @return array
+ */
+protected function buildReferenceNumbers($params)
+{
+    $references = [];
+    
+    $sku = !empty($params['item_sku']) ? $params['item_sku'] : null;
+    $quantity = isset($params['item_quantity']) ? (int)$params['item_quantity'] : 1;
+    
+    if (!empty($sku)) {
+        // Format: SKU-QTYpcs (or just SKU if quantity is 1)
+        $skuValue = $quantity > 1 ? "{$sku}-{$quantity}pcs" : $sku;
+        
+        // Limit to 35 characters (UPS ReferenceNumber max length)
+        $skuValue = substr($skuValue, 0, 35);
+        
+        $references[] = [
+            "Code"  => "PO",
+            "Value" => $skuValue
+        ];
+        
+        // Add quantity as a separate reference if needed
+        if ($quantity > 1) {
+            $references[] = [
+                "Code"  => "IN",
+                "Value" => (string)$quantity
+            ];
+        }
+    } else {
+        // Fallback if no SKU
+        $references[] = [
+            "Code"  => "PO",
+            "Value" => '-'
+        ];
+    }
+    
+    return $references;
+}
+
+/**
+ * Build Package Description with SKU and quantity
+ * 
+ * @param array $params Parameters containing item_sku and item_quantity
+ * @return string
+ */
+protected function buildPackageDescription($params)
+{
+    if (!empty($params['package_description'])) {
+        return $params['package_description'];
+    }
+    
+    $sku = !empty($params['item_sku']) ? $params['item_sku'] : null;
+    $quantity = isset($params['item_quantity']) ? (int)$params['item_quantity'] : 1;
+    
+    if (!empty($sku)) {
+        // Format: SKU (Qty: X) or just SKU if quantity is 1
+        return $quantity > 1 ? "{$sku} (Qty: {$quantity})" : $sku;
+    }
+    
+    return "Shipment via UPS";
 }
 
 }

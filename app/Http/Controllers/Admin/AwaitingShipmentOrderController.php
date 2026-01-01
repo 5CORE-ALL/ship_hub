@@ -282,6 +282,7 @@ public function createPrintLabels(Request $request)
                 'shipper_state'     => $order->shipper_state ?? 'OH',
                 'shipper_postal'    => $order->shipper_postal ?? '43311',
                 'item_sku'    =>       $order->item_sku,
+                'item_quantity' =>      $order->quantity ?? 1,
                 'shipper_country'   => (strtolower(trim($order->shipper_country)) === 'united states') ? 'US' : strtoupper(substr($order->shipper_country ?? 'US', 0, 2)),
                 'recipient_name'    => $order->recipient_name ?? 'Default Recipient',
                 'recipient_phone'   => $order->recipient_phone ?? '9876543210',
