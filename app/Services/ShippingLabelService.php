@@ -550,10 +550,23 @@ class ShippingLabelService
                         ];
                     } elseif (
                         $isSuccess &&
-                        !empty($label["label_id"]) &&
-                        !empty($label["raw"]["shipment_cost"]["amount"])
+                        !empty($label["label_id"])
                     ) {
                         $successCount++;
+
+                        // Extract shipping cost from multiple possible locations
+                        $shippingCost = $label["raw"]["shipment_cost"]["amount"] ?? 
+                                       $label["raw"]["shipment_cost"] ?? 
+                                       $label["raw"]["cost"] ?? 
+                                       $label["raw"]["shipping_cost"] ?? 
+                                       $label["cost"] ?? 
+                                       0;
+                        
+                        // Extract currency from multiple possible locations
+                        $currency = $label["raw"]["shipment_cost"]["currency"] ?? 
+                                   $label["raw"]["currency"] ?? 
+                                   $label["currency"] ?? 
+                                   "USD";
 
                         $order->update([
                             "label_id" => $label["label_id"],
@@ -564,9 +577,8 @@ class ShippingLabelService
                                 $label["raw"]["carrier_code"] ?? null,
                             "shipping_service" =>
                                 $label["raw"]["service_code"] ?? null,
-                            "shipping_cost" =>
-                                $label["raw"]["shipment_cost"]["amount"],
-                            "ship_date" => $label["shipDate"] ?? now(),
+                            "shipping_cost" => $shippingCost,
+                            "ship_date" => $label["shipDate"] ?? $label["raw"]["ship_date"] ?? now(),
                             "label_status" => "purchased",
                             "label_source" => "api",
                             "fulfillment_status" => "shipped",
@@ -579,11 +591,11 @@ class ShippingLabelService
                             "tracking_number" => $label["trackingNumber"],
                             "carrier" =>  detectCarrier($label["trackingNumber"]) ?: 'Standard',
                             "label_id" => $label["label_id"],
-                            "service_type" => $label["raw"]["service_code"],
+                            "service_type" => $label["raw"]["service_code"] ?? null,
                             "package_weight" =>
                                 $label["raw"]["packages"][0]["weight"][
                                     "value"
-                                ] ?? null,
+                                ] ?? $label["raw"]["packages"][0]["weight"] ?? null,
                             "package_dimensions" => json_encode(
                                 $label["raw"]["packages"][0]["dimensions"] ?? []
                             ),
@@ -591,9 +603,8 @@ class ShippingLabelService
                             "shipment_status" => "created",
                             "label_data" => json_encode($label),
                             "ship_date" => now(),
-                            "cost" => $label["raw"]["shipment_cost"]["amount"],
-                            "currency" =>
-                                $label["raw"]["shipment_cost"]["currency"],
+                            "cost" => $shippingCost,
+                            "currency" => $currency,
                             "tracking_url" =>
                                 $label["raw"]["tracking_url"] ?? null,
                             "label_status" => "active",
