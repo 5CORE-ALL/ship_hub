@@ -30,19 +30,23 @@ class FixLiveServerData extends Command
         // Step 2: Fix orders with active shipments but incorrect status (batch update for efficiency)
         $this->info('Step 2: Fixing orders with active shipments but incorrect status...');
         
-        // Use a single UPDATE query for better performance
+        // Fix orders with active shipments but wrong order_status or printing_status
+        // This includes:
+        // - Orders with order_status != 'shipped' (should be 'Shipped')
+        // - Orders with printing_status != 1 (should be 1 for awaiting print)
         $fixed = DB::table('orders as o')
             ->join('shipments as s', function($join) {
                 $join->on('s.order_id', '=', 'o.id')
                      ->where('s.label_status', '=', 'active');
             })
             ->where(function($query) {
-                // Orders with active shipments but order_status != 'shipped' (regardless of printing_status)
-                $query->whereRaw('LOWER(o.order_status) != ?', ['shipped']);
+                // Orders with active shipments but order_status != 'shipped' OR printing_status != 1
+                $query->whereRaw('LOWER(o.order_status) != ?', ['shipped'])
+                      ->orWhere('o.printing_status', '!=', 1);
             })
             ->update([
                 'o.order_status' => 'Shipped',
-                'o.printing_status' => 1,
+                'o.printing_status' => 1,  // Always set to 1 for awaiting print (not 2)
                 'o.label_status' => 'purchased',
                 'o.label_source' => 'api',
                 'o.fulfillment_status' => 'shipped',
@@ -50,7 +54,7 @@ class FixLiveServerData extends Command
             ]);
         
         if ($fixed > 0) {
-            $this->info("✅ Fixed {$fixed} orders with active shipments.");
+            $this->info("✅ Fixed {$fixed} orders with active shipments (corrected order_status and/or printing_status).");
         } else {
             $this->info('✅ No orders need fixing.');
         }
