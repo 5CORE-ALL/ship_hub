@@ -37,9 +37,20 @@ class FixLiveServerData extends Command
                      ->where('s.label_status', '=', 'active');
             })
             ->where(function($query) {
-                $query->where('o.printing_status', 0)
-                      ->orWhere('o.order_status', 'unshipped')
-                      ->orWhere('o.order_status', 'Unshipped');
+                // Orders that should appear in awaiting print but have wrong status
+                $query->where(function($q) {
+                    $q->where('o.printing_status', 1)
+                      ->where(function($q2) {
+                          $q2->where('o.order_status', 'unshipped')
+                             ->orWhere('o.order_status', 'Unshipped')
+                             ->orWhereRaw('LOWER(o.order_status) != ?', ['shipped']);
+                      });
+                })
+                // OR orders with active shipments but printing_status = 0
+                ->orWhere(function($q) {
+                    $q->where('o.printing_status', 0)
+                      ->whereRaw('LOWER(o.order_status) != ?', ['shipped']);
+                });
             })
             ->select('o.id', 'o.order_number', 'o.order_status', 'o.printing_status')
             ->get();
@@ -49,13 +60,20 @@ class FixLiveServerData extends Command
             foreach ($ordersToFix as $orderData) {
                 $order = Order::find($orderData->id);
                 if ($order) {
-                    $order->update([
+                    // If it has active shipment and printing_status = 1, it should be 'shipped'
+                    // If it has active shipment but printing_status = 0, set both correctly
+                    $updates = [
                         'order_status' => 'Shipped',
-                        'printing_status' => 1,
                         'label_status' => 'purchased',
                         'label_source' => 'api',
                         'fulfillment_status' => 'shipped',
-                    ]);
+                    ];
+                    
+                    // Always set printing_status to 1 if there's an active shipment
+                    $updates['printing_status'] = 1;
+                    
+                    $order->update($updates);
+                    $this->line("  ✅ Fixed: {$order->order_number} (status: {$orderData->order_status} -> Shipped, printing_status: {$orderData->printing_status} -> 1)");
                     $fixed++;
                 }
             }
