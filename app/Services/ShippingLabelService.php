@@ -78,7 +78,10 @@ class ShippingLabelService
                         "success" => true,
                         "message" =>
                             "Active label already exists, skipped creation",
+                        "provider" => $provider ?? "unknown",
+                        "source" => $source ?? "unknown",
                     ];
+                    $successCount++; // Count as success since label already exists
                     continue;
                 }
 
@@ -235,9 +238,19 @@ class ShippingLabelService
                             [
                                 "payload" => $payload,
                                 "error" => $e->getMessage(),
+                                "trace" => $e->getTraceAsString(),
                             ]
                         );
                         $failedCount++;
+                        // CRITICAL FIX: Add to labels array before continuing
+                        $labels[] = [
+                            "order_id" => $orderId,
+                            "success" => false,
+                            "provider" => $provider,
+                            "source" => $source,
+                            "error" => "Sendle API exception: " . $e->getMessage(),
+                            "message" => "Sendle API call failed: " . $e->getMessage(),
+                        ];
                         continue; // go to next order
                     }
 
@@ -345,7 +358,30 @@ class ShippingLabelService
                         ];
                     }
                 } elseif ($provider === "shippo") {
-                    $label = $this->shippo->createLabelByRateId($rateId);
+                    try {
+                        $label = $this->shippo->createLabelByRateId($rateId);
+                    } catch (\Exception $e) {
+                        Log::error(
+                            "Shippo API call failed for order {$orderId}",
+                            [
+                                "rate_id" => $rateId,
+                                "error" => $e->getMessage(),
+                                "trace" => $e->getTraceAsString(),
+                            ]
+                        );
+                        $failedCount++;
+                        // CRITICAL FIX: Add to labels array before continuing
+                        $labels[] = [
+                            "order_id" => $orderId,
+                            "success" => false,
+                            "provider" => $provider,
+                            "source" => $source,
+                            "error" => "Shippo API exception: " . $e->getMessage(),
+                            "message" => "Shippo API call failed: " . $e->getMessage(),
+                        ];
+                        continue;
+                    }
+                    
                     $orderRate = OrderShippingRate::where(
                         "rate_id",
                         $rateId
@@ -455,7 +491,30 @@ class ShippingLabelService
                     }
                 }
                 else {
-                    $label = $this->shipStation->createLabelByRateId($rateId);
+                    try {
+                        $label = $this->shipStation->createLabelByRateId($rateId);
+                    } catch (\Exception $e) {
+                        Log::error(
+                            "ShipStation API call failed for order {$orderId}",
+                            [
+                                "rate_id" => $rateId,
+                                "error" => $e->getMessage(),
+                                "trace" => $e->getTraceAsString(),
+                            ]
+                        );
+                        $failedCount++;
+                        // CRITICAL FIX: Add to labels array before continuing
+                        $labels[] = [
+                            "order_id" => $orderId,
+                            "success" => false,
+                            "provider" => $provider,
+                            "source" => $source,
+                            "error" => "ShipStation API exception: " . $e->getMessage(),
+                            "message" => "ShipStation API call failed: " . $e->getMessage(),
+                        ];
+                        continue;
+                    }
+                    
                     $isFailed =
                         isset($label["success"]) && $label["success"] === false;
                     $isSuccess =
@@ -605,6 +664,20 @@ class ShippingLabelService
                         ];
                     }
                 }
+                // CRITICAL FIX: Ensure result is always set before adding to labels array
+                if (!isset($result)) {
+                    Log::warning("Result not set for order {$orderId}, creating default result", [
+                        "provider" => $provider,
+                        "source" => $source,
+                    ]);
+                    $result = [
+                        "success" => false,
+                        "error" => "Label processing completed but result was not set",
+                        "message" => "Unexpected state: result variable was not initialized",
+                    ];
+                    $failedCount++;
+                }
+                
                 $labels[] = array_merge(
                     [
                         "order_id" => $orderId,
@@ -687,6 +760,44 @@ class ShippingLabelService
             ->where("success", false)
             ->pluck("order_id")
             ->values();
+        
+        // CRITICAL VALIDATION: Ensure all orders are accounted for
+        $trackedOrderIds = collect($labels)->pluck("order_id")->values()->toArray();
+        $missingOrderIds = array_diff($orderIds, $trackedOrderIds);
+        
+        if (!empty($missingOrderIds)) {
+            Log::error("CRITICAL: Missing orders in labels array!", [
+                "missing_order_ids" => $missingOrderIds,
+                "total_requested" => count($orderIds),
+                "total_tracked" => count($trackedOrderIds),
+                "success_count" => $successCount,
+                "failed_count" => $failedCount,
+            ]);
+            
+            // Add missing orders to labels array as failed
+            foreach ($missingOrderIds as $missingOrderId) {
+                $labels[] = [
+                    "order_id" => $missingOrderId,
+                    "success" => false,
+                    "provider" => "unknown",
+                    "source" => "unknown",
+                    "error" => "Order was not tracked during processing",
+                    "message" => "Order processing completed but was not added to labels array",
+                ];
+                $failedCount++;
+            }
+            
+            // Recalculate after adding missing orders
+            $successOrderIds = collect($labels)
+                ->where("success", true)
+                ->pluck("order_id")
+                ->values();
+            $failedOrderIds = collect($labels)
+                ->where("success", false)
+                ->pluck("order_id")
+                ->values();
+        }
+        
         $summary = [
             "total_processed" => count($orderIds),
             "success_count" => $successCount,
@@ -694,19 +805,50 @@ class ShippingLabelService
             "success_order_ids" => $successOrderIds,
             "failed_order_ids" => $failedOrderIds,
         ];
-        $mergedUrl = null;
-        \App\Models\BulkShippingHistory::create([
-            "order_ids" => $orderIds,
-            "providers" =>'mixed',
-            "merged_pdf_url" => $mergedUrl ?? null,
-            "status" => $failedCount > 0 ? "partial" : "completed",
-            "processed" => $summary["total_processed"],
-            "success" => $summary["success_count"],
-            "failed" => $summary["failed_count"],
-            "success_order_ids" => $successOrderIds,
-            "failed_order_ids" => $failedOrderIds,
-            "user_id" => $userId
+        
+        // Final validation log
+        Log::info("Bulk label processing summary", [
+            "total_requested" => count($orderIds),
+            "total_tracked_in_labels" => count($labels),
+            "success_count" => $successCount,
+            "failed_count" => $failedCount,
+            "summary" => $summary,
         ]);
+        $mergedUrl = null;
+        
+        // CRITICAL FIX: Wrap history creation in try-catch to prevent silent failures
+        try {
+            $history = \App\Models\BulkShippingHistory::create([
+                "order_ids" => $orderIds,
+                "providers" =>'mixed',
+                "merged_pdf_url" => $mergedUrl ?? null,
+                "status" => $failedCount > 0 ? "partial" : "completed",
+                "processed" => $summary["total_processed"],
+                "success" => $summary["success_count"],
+                "failed" => $summary["failed_count"],
+                "success_order_ids" => $successOrderIds,
+                "failed_order_ids" => $failedOrderIds,
+                "user_id" => $userId
+            ]);
+            
+            Log::info("BulkShippingHistory created successfully", [
+                "history_id" => $history->id,
+                "total_processed" => $summary["total_processed"],
+                "success_count" => $summary["success_count"],
+                "failed_count" => $summary["failed_count"],
+            ]);
+        } catch (\Exception $e) {
+            // Log the error but don't fail the entire operation
+            Log::error("CRITICAL: Failed to create BulkShippingHistory", [
+                "error" => $e->getMessage(),
+                "trace" => $e->getTraceAsString(),
+                "order_ids" => $orderIds,
+                "summary" => $summary,
+                "user_id" => $userId,
+            ]);
+            // Re-throw to ensure this is visible
+            throw new \Exception("Failed to save bulk shipping history: " . $e->getMessage(), 0, $e);
+        }
 
         return [
             "labels" => $labels,
