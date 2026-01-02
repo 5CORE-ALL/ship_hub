@@ -65,8 +65,66 @@ class FixLiveServerData extends Command
         }
         $this->newLine();
         
-        // Step 3: Check specific order if provided
-        $this->info('Step 3: Checking order 04-14054-11277...');
+        // Step 3: Check and fix specific orders from the batch
+        $this->info('Step 3: Checking orders from batch 04-14054-* and 02-14054-*...');
+        $batchOrders = Order::where('order_number', 'like', '04-14054-%')
+            ->orWhere('order_number', 'like', '02-14054-%')
+            ->get();
+        
+        $this->info("Found {$batchOrders->count()} orders from the batch.");
+        
+        foreach ($batchOrders as $specificOrder) {
+            $this->line("Checking: {$specificOrder->order_number}...");
+            
+            // Check if it has active shipment but wrong status
+            $hasActiveShipment = DB::table('shipments')
+                ->where('order_id', $specificOrder->id)
+                ->where('label_status', 'active')
+                ->exists();
+            
+            if ($hasActiveShipment) {
+                // Should appear in awaiting print
+                $needsFix = false;
+                $fixes = [];
+                
+                if (strtolower($specificOrder->order_status) !== 'shipped') {
+                    $needsFix = true;
+                    $fixes[] = "order_status: {$specificOrder->order_status} -> Shipped";
+                }
+                
+                if ($specificOrder->printing_status != 1) {
+                    $needsFix = true;
+                    $fixes[] = "printing_status: {$specificOrder->printing_status} -> 1";
+                }
+                
+                if ($needsFix) {
+                    $this->warn("  ⚠️  Needs fix: " . implode(', ', $fixes));
+                    $specificOrder->update([
+                        'order_status' => 'Shipped',
+                        'printing_status' => 1,
+                        'label_status' => 'purchased',
+                        'label_source' => 'api',
+                        'fulfillment_status' => 'shipped',
+                    ]);
+                    $this->info("  ✅ Fixed!");
+                } else {
+                    $this->info("  ✅ Already correct");
+                }
+            } else {
+                // Should appear in awaiting shipment (if no active shipment)
+                if ($specificOrder->queue == 1) {
+                    $this->warn("  ⚠️  Stuck in queue, unlocking...");
+                    $specificOrder->update(['queue' => 0]);
+                    $this->info("  ✅ Unlocked!");
+                } else {
+                    $this->info("  ℹ️  No active shipment (should appear in awaiting shipment if other criteria met)");
+                }
+            }
+        }
+        
+        // Also check the specific order mentioned
+        $this->newLine();
+        $this->info('Checking order 04-14054-11277...');
         $specificOrder = Order::where('order_number', '04-14054-11277')->first();
         
         if ($specificOrder) {
