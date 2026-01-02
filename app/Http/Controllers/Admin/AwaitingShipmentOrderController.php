@@ -49,7 +49,6 @@ class AwaitingShipmentOrderController extends Controller
             'order_items.product_name'
         )
         ->leftJoin('order_items', 'orders.id', '=', 'order_items.order_id')
-        ->where('orders.id','5')
         ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
     if (!empty($request->marketplace)) {
         $query->where('orders.marketplace', $request->marketplace);
