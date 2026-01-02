@@ -37,9 +37,21 @@ class FixLiveServerData extends Command
                      ->where('s.label_status', '=', 'active');
             })
             ->where(function($query) {
-                $query->where('o.printing_status', 0)
-                      ->orWhere('o.order_status', 'unshipped')
-                      ->orWhere('o.order_status', 'Unshipped');
+                // Orders that should appear in awaiting print but have wrong status
+                // Case 1: printing_status = 1 but order_status != 'shipped' (main issue)
+                $query->where(function($q) {
+                    $q->where('o.printing_status', 1)
+                      ->where(function($q2) {
+                          $q2->where('o.order_status', 'unshipped')
+                             ->orWhere('o.order_status', 'Unshipped')
+                             ->orWhereRaw('LOWER(o.order_status) != ?', ['shipped']);
+                      });
+                })
+                // Case 2: printing_status = 0 but order_status != 'shipped'
+                ->orWhere(function($q) {
+                    $q->where('o.printing_status', 0)
+                      ->whereRaw('LOWER(o.order_status) != ?', ['shipped']);
+                });
             })
             ->select('o.id', 'o.order_number', 'o.order_status', 'o.printing_status')
             ->get();
@@ -47,16 +59,23 @@ class FixLiveServerData extends Command
         if ($ordersToFix->isNotEmpty()) {
             $fixed = 0;
             foreach ($ordersToFix as $orderData) {
-                $order = Order::find($orderData->id);
-                if ($order) {
-                    $order->update([
+                // Use direct DB update to avoid model events/observers that might interfere
+                $updated = DB::table('orders')
+                    ->where('id', $orderData->id)
+                    ->update([
                         'order_status' => 'Shipped',
                         'printing_status' => 1,
                         'label_status' => 'purchased',
                         'label_source' => 'api',
                         'fulfillment_status' => 'shipped',
+                        'updated_at' => now(),
                     ]);
+                
+                if ($updated > 0) {
+                    $this->line("  ✅ Fixed: {$orderData->order_number} (status: {$orderData->order_status} -> Shipped, printing_status: {$orderData->printing_status} -> 1)");
                     $fixed++;
+                } else {
+                    $this->warn("  ⚠️  Failed to update: {$orderData->order_number}");
                 }
             }
             $this->info("✅ Fixed {$fixed} orders with active shipments.");
@@ -99,14 +118,22 @@ class FixLiveServerData extends Command
                 
                 if ($needsFix) {
                     $this->warn("  ⚠️  Needs fix: " . implode(', ', $fixes));
-                    $specificOrder->update([
-                        'order_status' => 'Shipped',
-                        'printing_status' => 1,
-                        'label_status' => 'purchased',
-                        'label_source' => 'api',
-                        'fulfillment_status' => 'shipped',
-                    ]);
-                    $this->info("  ✅ Fixed!");
+                    $updated = DB::table('orders')
+                        ->where('id', $specificOrder->id)
+                        ->update([
+                            'order_status' => 'Shipped',
+                            'printing_status' => 1,
+                            'label_status' => 'purchased',
+                            'label_source' => 'api',
+                            'fulfillment_status' => 'shipped',
+                            'updated_at' => now(),
+                        ]);
+                    
+                    if ($updated > 0) {
+                        $this->info("  ✅ Fixed!");
+                    } else {
+                        $this->error("  ❌ Update failed!");
+                    }
                 } else {
                     $this->info("  ✅ Already correct");
                 }
