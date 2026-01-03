@@ -92,7 +92,8 @@ class AwaitingShipmentOrderBackupController extends Controller
             ->distinct('orders.id')
             ->count('orders.id');
         
-        // Calculate overdue orders count (orders that arrived before 3:30 PM Ohio time today)
+        // Calculate overdue orders count (orders that were placed before 3:30 PM Ohio time today)
+        // Use order_date (when order was placed) not created_at (when synced to database)
         // Use the same filters as pendingCount/getAwaitingShipmentOrders for consistency
         $ohioTimezone = 'America/New_York';
         $todayCutoff = Carbon::today($ohioTimezone)->setTime(15, 30, 0); // Today at 3:30 PM Ohio time
@@ -114,7 +115,8 @@ class AwaitingShipmentOrderBackupController extends Controller
                 $query->whereNotIn('cancel_status', ['CANCELED', 'IN_PROGRESS'])
                   ->orWhereNull('cancel_status');
             })
-            ->where('orders.created_at', '<', $todayCutoff->utc())
+            ->whereNotNull('orders.order_date') // Ensure order_date exists
+            ->where('orders.order_date', '<', $todayCutoff->utc())
             ->distinct('orders.id')
             ->count('orders.id');
 
