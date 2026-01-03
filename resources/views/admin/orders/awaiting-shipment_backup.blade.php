@@ -2,6 +2,13 @@
 @section('title', 'Awaiting Shipment')
 @section('content')
 <style>
+/* Count badges styling - larger and more noticeable */
+.page-title .badge {
+    font-size: 1.1rem;
+    padding: 0.5rem 0.75rem;
+    font-weight: 600;
+}
+
 /* Apply same gradient to ALL fixed left header columns */
 .DTFC_LeftHeadWrapper th {
     background: linear-gradient(to right, #3f51b5, #5c6bc0) !important;
@@ -310,9 +317,8 @@
   
     <div class="page-title d-flex justify-content-between align-items-center mb-3">
             <div class="d-flex align-items-center gap-2">
-                <h5 class="mb-0">Awaiting Shipment <span class="badge bg-primary ms-2">({{ $pendingCount ?? 0 }})</span></h5>
-                <span class="badge {{ ($overdueCount ?? 0) > 0 ? 'bg-danger' : 'bg-success' }} ms-2">({{ $overdueCount ?? 0 }})</span>
-                <i class="bi bi-info-circle text-primary" style="cursor: pointer;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
+                <h5 class="mb-0">Awaiting Shipment <span class="badge bg-primary ms-2">({{ $pendingCount ?? 0 }})</span> <span class="badge {{ ($overdueCount ?? 0) > 0 ? 'bg-danger' : 'bg-success' }} ms-2">({{ $overdueCount ?? 0 }})</span></h5>
+                <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 1.2rem;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
             </div>
         <div class="d-flex align-items-center gap-2">
             <!-- Weight Filter Buttons -->
