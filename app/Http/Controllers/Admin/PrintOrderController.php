@@ -431,4 +431,46 @@ public function getAwaitingPrintOrders(Request $request)
             ], 500);
         }
     }
+
+    public function bulkMarkAsPrinted(Request $request)
+    {
+        $request->validate([
+            'order_ids' => 'required|array',
+            'order_ids.*' => 'required|integer|exists:orders,id',
+        ]);
+
+        try {
+            return DB::transaction(function () use ($request) {
+                $orderIds = $request->order_ids;
+                $updatedCount = Order::whereIn('id', $orderIds)
+                    ->where('printing_status', 1) // Only update orders that are awaiting print
+                    ->update([
+                        'printing_status' => 2 // Mark as printed
+                    ]);
+
+                if ($updatedCount === 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No orders were updated. Make sure the selected orders are in "awaiting print" status.'
+                    ], 400);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => "{$updatedCount} order" . ($updatedCount > 1 ? 's' : '') . " marked as printed successfully!",
+                    'updated_count' => $updatedCount
+                ]);
+            });
+        } catch (\Exception $e) {
+            Log::error('Error in bulkMarkAsPrinted: ' . $e->getMessage(), [
+                'order_ids' => $request->order_ids,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to mark orders as printed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

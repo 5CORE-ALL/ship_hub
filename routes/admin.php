@@ -138,6 +138,8 @@ Route::prefix('admin')->group(function () {
      Route::post('orders/print/labelsv1/{type}', [PrintOrderController::class, 'printLabelsv1'])->name('orders.print.labelsv1');
      Route::get('/admin/orders/awaiting-print/datav1', [PrintOrderController::class, 'getAwaitingPrintOrders'])
     ->name('orders.awaiting-print.data');
+     Route::post('/orders/bulk-mark-printed', [PrintOrderController::class, 'bulkMarkAsPrinted'])
+    ->name('orders.bulk-mark-printed');
                 
             Route::get('/admin/orders/shipped-orders/data', [ShipOrderController::class, 'getShippedOrders'])
                 ->name('orders.shipped.data');

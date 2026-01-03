@@ -64,6 +64,9 @@
             <button type="button" class="btn btn-success d-none" id="bulkPrintBtn">
                 <i class="bi bi-printer"></i> Bulk Print
             </button>
+            <button type="button" class="btn btn-info d-none" id="markAsPrintedBtn">
+                <i class="bi bi-check-circle"></i> Mark as Printed
+            </button>
            <!--  <button type="button" class="btn btn-danger d-none" id="cancelShipmentBtn">
                 <i class="bi bi-x-circle"></i> Cancel Shipment
             </button> -->
@@ -375,6 +378,7 @@ $(document).ready(function() {
         let selectedOrders = $('.order-checkbox:checked');
         let selectedCount = selectedOrders.length;
         $('#bulkPrintBtn').toggleClass('d-none', selectedOrders.length < 2);
+        $('#markAsPrintedBtn').toggleClass('d-none', selectedOrders.length < 1);
         $('#cancelShipmentBtn').toggleClass('d-none', selectedOrders.length < 1);
         $('#selectedCount').text(selectedCount);
         $('#selectedCountDisplay').toggleClass('text-primary', selectedCount > 0).toggleClass('text-muted', selectedCount === 0);
@@ -494,6 +498,102 @@ $(document).ready(function() {
         let $button = $(this);
         let orderId = $button.data('order-id');
         printLabels([orderId], $button);
+    });
+
+    $('#markAsPrintedBtn').on('click', function(e) {
+        e.preventDefault();
+        let $button = $(this);
+        let selectedOrders = $('.order-checkbox:checked').map(function() {
+            return this.value;
+        }).get();
+
+        if (selectedOrders.length < 1) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Orders Selected',
+                text: 'Please select at least one order to mark as printed.',
+                confirmButtonText: 'OK'
+            });
+            return;
+        }
+
+        Swal.fire({
+            icon: 'question',
+            title: 'Mark as Printed',
+            text: `Are you sure you want to mark ${selectedOrders.length} order${selectedOrders.length > 1 ? 's' : ''} as printed?`,
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Mark as Printed',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#0dcaf0',
+            cancelButtonColor: '#6c757d'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $('#loaderText').text('Marking orders as printed...');
+                $('#loader').show();
+                $('body').addClass('loader-active');
+                $button.prop('disabled', true);
+
+                $.ajax({
+                    url: '{{ route("orders.bulk-mark-printed") }}',
+                    type: 'POST',
+                    data: {
+                        order_ids: selectedOrders,
+                        _token: '{{ csrf_token() }}'
+                    },
+                    dataType: 'json',
+                    success: function(response) {
+                        $('#loader').hide();
+                        $('body').removeClass('loader-active');
+                        $button.prop('disabled', false);
+
+                        if (response.success) {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Success',
+                                text: response.message || `${selectedOrders.length} order${selectedOrders.length > 1 ? 's' : ''} marked as printed successfully!`,
+                                confirmButtonText: 'OK'
+                            });
+                            // Uncheck all checkboxes
+                            $('.order-checkbox:checked').prop('checked', false);
+                            $('#selectAll').prop('checked', false);
+                            updateBulkButtons();
+                            table.ajax.reload();
+                        } else {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Error',
+                                text: response.message || `Failed to mark order${selectedOrders.length > 1 ? 's' : ''} as printed.`,
+                                confirmButtonText: 'OK'
+                            });
+                        }
+                    },
+                    error: function(xhr) {
+                        $('#loader').hide();
+                        $('body').removeClass('loader-active');
+                        $button.prop('disabled', false);
+
+                        let msg = `An unexpected error occurred while marking order${selectedOrders.length > 1 ? 's' : ''} as printed.`;
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            msg = xhr.responseJSON.message;
+                        } else if (xhr.responseText) {
+                            try {
+                                let parsed = JSON.parse(xhr.responseText);
+                                if (parsed.message) msg = parsed.message;
+                            } catch (e) {
+                                // not JSON, keep default msg
+                            }
+                        }
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Error',
+                            text: msg,
+                            confirmButtonText: 'OK'
+                        });
+                        console.error('AJAX Error:', xhr);
+                    }
+                });
+            }
+        });
     });
     $('#cancelShipmentBtn').on('click', function(e) {
         e.preventDefault();
