@@ -309,7 +309,7 @@
     </div>
   
     <div class="page-title d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">Awaiting Shipment</h5>
+            <h5 class="mb-0">Awaiting Shipment <span class="badge bg-primary ms-2">({{ $pendingCount ?? 0 }})</span></h5>
         <div class="d-flex align-items-center gap-2">
             <!-- Weight Filter Buttons -->
             <div class="btn-group" role="group" aria-label="Weight Filter">

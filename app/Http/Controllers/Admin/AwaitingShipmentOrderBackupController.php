@@ -67,13 +67,37 @@ class AwaitingShipmentOrderBackupController extends Controller
         ->orderBy('order_index')
         ->get();
         $canBuyShipping = auth()->user()->can('buy_shipping');
+        
+        // Count pending shipments using the same base query logic as getAwaitingShipmentOrders
+        $pendingCount = Order::query()
+            ->join('order_items', 'orders.id', '=', 'order_items.order_id')
+            ->where('orders.printing_status', 0)
+            ->whereNotIn('orders.marketplace', ['walmart-s','ebay-s'])
+            ->where(function ($q) {
+                $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3','shopify_draft_order'])
+                  ->orWhereNull('orders.source_name');
+            })
+            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok','amazon'])
+            ->where('orders.queue',0)
+            ->where('marked_as_ship',0)
+            ->whereIn('orders.order_status', [
+                'Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted', 'awaiting_shipment','Created','Acknowledged','AWAITING_SHIPMENT','paid'
+            ])
+            ->where(function($query) {
+                $query->whereNotIn('cancel_status', ['CANCELED', 'IN_PROGRESS'])
+                  ->orWhereNull('cancel_status');
+            })
+            ->distinct('orders.id')
+            ->count('orders.id');
+        
         return view('admin.orders.awaiting-shipment_backup', compact(
             'orders',
             'services',
             'salesChannels',
             'marketplaces',
             'canBuyShipping',
-            'columns'
+            'columns',
+            'pendingCount'
         ));
     }
 

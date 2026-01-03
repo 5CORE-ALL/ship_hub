@@ -47,6 +47,55 @@
     <link href="{{ asset('admin') }}/plugins/sweetalert2/sweetalert2.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('admin/css/awaiting_shipment.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    
+    <style>
+        .timezone-display {
+            display: flex;
+            flex-direction: row;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .timezone-item {
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .timezone-label {
+            font-weight: 600;
+            color: #6c757d;
+            font-size: 11px;
+        }
+        .timezone-time {
+            font-weight: 600;
+            color: #495057;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+        }
+        .timezone-detail-item {
+            border-bottom: 1px solid #e9ecef;
+        }
+        .timezone-detail-item:last-child {
+            border-bottom: none;
+        }
+        .timezone-time-detail {
+            font-weight: 600;
+            color: #0d6efd;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+        }
+        .timezone-detail-item:hover {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 0 4px;
+        }
+    </style>
 
     <title>{{ env('APP_NAME') }} || @yield('title')</title>
 </head>
@@ -155,6 +204,72 @@
                                 </div>
                             </div>
                         </li> --}}
+                        <li class="nav-item dropdown dropdown-large d-none d-xl-block">
+                            <a class="nav-link dropdown-toggle dropdown-toggle-nocaret" href="#" data-bs-toggle="dropdown">
+                                <div class="d-flex align-items-center gap-3">
+                                    <i class="bi bi-clock-history fs-5"></i>
+                                    <div class="timezone-display">
+                                        <div class="timezone-item">
+                                            <span class="timezone-label">IN:</span>
+                                            <span id="time-india" class="timezone-time">--:-- --</span>
+                                        </div>
+                                        <div class="timezone-item">
+                                            <span class="timezone-label">CA:</span>
+                                            <span id="time-california" class="timezone-time">--:-- --</span>
+                                        </div>
+                                        <div class="timezone-item">
+                                            <span class="timezone-label">OH:</span>
+                                            <span id="time-ohio" class="timezone-time">--:-- --</span>
+                                        </div>
+                                        <div class="timezone-item">
+                                            <span class="timezone-label">CN:</span>
+                                            <span id="time-china" class="timezone-time">--:-- --</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+                            <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 280px;">
+                                <div class="timezone-detail">
+                                    <h6 class="mb-3 fw-bold">World Clock</h6>
+                                    <div class="timezone-detail-item">
+                                        <div class="d-flex justify-content-between align-items-center py-2">
+                                            <div>
+                                                <span class="fw-bold d-block">India</span>
+                                                <small class="text-muted">IST (Asia/Kolkata)</small>
+                                            </div>
+                                            <span id="time-india-detail" class="timezone-time-detail">--:--:-- --</span>
+                                        </div>
+                                    </div>
+                                    <div class="timezone-detail-item">
+                                        <div class="d-flex justify-content-between align-items-center py-2">
+                                            <div>
+                                                <span class="fw-bold d-block">California</span>
+                                                <small class="text-muted">PST/PDT (America/Los_Angeles)</small>
+                                            </div>
+                                            <span id="time-california-detail" class="timezone-time-detail">--:--:-- --</span>
+                                        </div>
+                                    </div>
+                                    <div class="timezone-detail-item">
+                                        <div class="d-flex justify-content-between align-items-center py-2">
+                                            <div>
+                                                <span class="fw-bold d-block">Ohio</span>
+                                                <small class="text-muted">EST/EDT (America/New_York)</small>
+                                            </div>
+                                            <span id="time-ohio-detail" class="timezone-time-detail">--:--:-- --</span>
+                                        </div>
+                                    </div>
+                                    <div class="timezone-detail-item">
+                                        <div class="d-flex justify-content-between align-items-center py-2">
+                                            <div>
+                                                <span class="fw-bold d-block">China</span>
+                                                <small class="text-muted">CST (Asia/Shanghai)</small>
+                                            </div>
+                                            <span id="time-china-detail" class="timezone-time-detail">--:--:-- --</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
                         <li class="nav-item dropdown dropdown-large">
                             @php
                                 $photo = Auth::user()->profile_photo;
@@ -392,6 +507,60 @@
         .then(reg => console.log('Service Worker registered:', reg))
         .catch(err => console.log('Service Worker registration failed:', err));
     }
+</script>
+<script>
+    // Timezone display functionality
+    function formatTimeInTimezone(timezone, format = 'short') {
+        const now = new Date();
+        const options = {
+            timeZone: timezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        };
+        
+        if (format === 'long') {
+            options.second = '2-digit';
+        }
+        
+        const formatter = new Intl.DateTimeFormat('en-US', options);
+        const parts = formatter.formatToParts(now);
+        
+        const hour = parts.find(p => p.type === 'hour').value;
+        const minute = parts.find(p => p.type === 'minute').value;
+        const dayPeriod = parts.find(p => p.type === 'dayPeriod')?.value || '';
+        
+        if (format === 'short') {
+            return `${hour}:${minute} ${dayPeriod}`;
+        } else {
+            const second = parts.find(p => p.type === 'second').value;
+            return `${hour}:${minute}:${second} ${dayPeriod}`;
+        }
+    }
+    
+    function updateTimezones() {
+        // India (Asia/Kolkata - IST)
+        document.getElementById('time-india').textContent = formatTimeInTimezone('Asia/Kolkata', 'short');
+        document.getElementById('time-india-detail').textContent = formatTimeInTimezone('Asia/Kolkata', 'long');
+        
+        // California (America/Los_Angeles - PST/PDT)
+        document.getElementById('time-california').textContent = formatTimeInTimezone('America/Los_Angeles', 'short');
+        document.getElementById('time-california-detail').textContent = formatTimeInTimezone('America/Los_Angeles', 'long');
+        
+        // Ohio (America/New_York - EST/EDT)
+        document.getElementById('time-ohio').textContent = formatTimeInTimezone('America/New_York', 'short');
+        document.getElementById('time-ohio-detail').textContent = formatTimeInTimezone('America/New_York', 'long');
+        
+        // China (Asia/Shanghai - CST)
+        document.getElementById('time-china').textContent = formatTimeInTimezone('Asia/Shanghai', 'short');
+        document.getElementById('time-china-detail').textContent = formatTimeInTimezone('Asia/Shanghai', 'long');
+    }
+    
+    // Update timezones immediately and then every second
+    $(document).ready(function() {
+        updateTimezones();
+        setInterval(updateTimezones, 1000);
+    });
 </script>
     @yield('script')
 
