@@ -309,7 +309,11 @@
     </div>
   
     <div class="page-title d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">Awaiting Shipment <span class="badge bg-primary ms-2">({{ $pendingCount ?? 0 }})</span></h5>
+            <div class="d-flex align-items-center gap-2">
+                <h5 class="mb-0">Awaiting Shipment <span class="badge bg-primary ms-2">({{ $pendingCount ?? 0 }})</span></h5>
+                <span class="badge {{ ($overdueCount ?? 0) > 0 ? 'bg-danger' : 'bg-success' }} ms-2">({{ $overdueCount ?? 0 }})</span>
+                <i class="bi bi-info-circle text-primary" style="cursor: pointer;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
+            </div>
         <div class="d-flex align-items-center gap-2">
             <!-- Weight Filter Buttons -->
             <div class="btn-group" role="group" aria-label="Weight Filter">
@@ -434,8 +438,34 @@
         </div>
     </div>
 </div>
+    <!-- Overdue History Modal -->
+    <div class="modal fade" id="overdueHistoryModal" tabindex="-1" aria-labelledby="overdueHistoryModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="overdueHistoryModalLabel">Overdue Count History</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="historyDays" class="form-label">Select Period:</label>
+                        <select class="form-select" id="historyDays">
+                            <option value="7">Last 7 days</option>
+                            <option value="14">Last 14 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="60">Last 60 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                    </div>
+                    <canvas id="overdueHistoryChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection
 @section('script')
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
        let select2Instance = null;
@@ -1728,8 +1758,84 @@
                         }
                     });
                 }
-            });
         });
     });
+
+    // Overdue Count History Chart
+    let overdueChart = null;
+    
+    function loadOverdueHistory(days = 30) {
+        const ctx = document.getElementById('overdueHistoryChart');
+        if (!ctx) {
+            return;
+        }
+        
+        $.ajax({
+            url: '{{ route("orders.overdue.history") }}',
+            method: 'GET',
+            data: { days: days },
+            success: function(data) {
+                const labels = data.map(item => item.date);
+                const counts = data.map(item => item.count);
+                
+                if (overdueChart) {
+                    overdueChart.destroy();
+                }
+                
+                overdueChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Overdue Count',
+                            data: counts,
+                            borderColor: 'rgb(220, 53, 69)',
+                            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    stepSize: 1
+                                }
+                            }
+                        }
+                    }
+                });
+            },
+            error: function(xhr) {
+                console.error('Error loading overdue history:', xhr);
+            }
+        });
+    }
+    
+    // Load chart when modal is shown
+    $('#overdueHistoryModal').on('shown.bs.modal', function() {
+        const days = $('#historyDays').val();
+        loadOverdueHistory(days);
+    });
+    
+    // Reload chart when period changes
+    $('#historyDays').on('change', function() {
+        const days = $(this).val();
+        loadOverdueHistory(days);
+    });
+});
 </script>
 @endsection

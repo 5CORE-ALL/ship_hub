@@ -24,6 +24,8 @@ use App\Services\ShopifyService;
 use App\Repositories\FulfillmentRepository;
 use App\Models\OrderShippingRate;
 use App\Models\UserColumnVisibility;
+use App\Models\DailyOverdueCount;
+use Carbon\Carbon;
 
 
 
@@ -90,6 +92,20 @@ class AwaitingShipmentOrderBackupController extends Controller
             ->distinct('orders.id')
             ->count('orders.id');
         
+        // Calculate overdue orders count (orders that arrived before 3:30 PM Ohio time today)
+        $ohioTimezone = 'America/New_York';
+        $todayCutoff = Carbon::today($ohioTimezone)->setTime(15, 30, 0); // Today at 3:30 PM Ohio time
+        $overdueCount = Order::whereIn('order_status', ['Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted'])
+            ->where('created_at', '<', $todayCutoff->utc())
+            ->count();
+
+        // Record daily overdue count
+        $today = Carbon::today($ohioTimezone);
+        DailyOverdueCount::updateOrCreate(
+            ['record_date' => $today],
+            ['overdue_count' => $overdueCount]
+        );
+        
         return view('admin.orders.awaiting-shipment_backup', compact(
             'orders',
             'services',
@@ -97,8 +113,28 @@ class AwaitingShipmentOrderBackupController extends Controller
             'marketplaces',
             'canBuyShipping',
             'columns',
-            'pendingCount'
+            'pendingCount',
+            'overdueCount'
         ));
+    }
+
+    public function getOverdueCountHistory(Request $request)
+    {
+        $days = $request->input('days', 30); // Default to last 30 days
+        $ohioTimezone = 'America/New_York';
+        $startDate = Carbon::today($ohioTimezone)->subDays($days);
+        
+        $history = DailyOverdueCount::where('record_date', '>=', $startDate)
+            ->orderBy('record_date', 'asc')
+            ->get()
+            ->map(function ($record) {
+                return [
+                    'date' => $record->record_date->format('Y-m-d'),
+                    'count' => $record->overdue_count,
+                ];
+            });
+
+        return response()->json($history);
     }
 
  public function getShippingOptions(Request $request)

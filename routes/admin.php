@@ -77,6 +77,7 @@ Route::prefix('admin')->group(function () {
     //         Route::get('/awaiting-shipment', [AwaitingShipmentOrderController::class, 'index'])
     // ->name('awaiting-shipment.index');
             Route::get('/admin/orders/awaiting-shipment/data', [AwaitingShipmentOrderController::class, 'getAwaitingShipmentOrders'])->name('orders.awaiting.data');
+            Route::get('/admin/orders/overdue-count/history', [AwaitingShipmentOrderController::class, 'getOverdueCountHistory'])->name('orders.overdue.history');
             Route::post('/orders/create-print-labels', [AwaitingShipmentOrderController::class, 'createPrintLabels'])->name('orders.create.print.labels');
 
                      Route::get('/awaiting-shipment-backup', [AwaitingShipmentOrderBackupController::class, 'index'])
