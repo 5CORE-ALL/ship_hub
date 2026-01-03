@@ -80,6 +80,13 @@ class ShipStationService
       $labelString = $this->generateLabelReferences1($order, $carrier);
       $companyName = ($order->order_number ?? 'N/A');
       $companyName = preg_replace('/[^A-Za-z0-9\s\-\_]/', '', $companyName);
+      
+      // Use standard dimensions (8x6x2) for USPS, otherwise use dimensions from params
+      $isUSPS = (strtoupper($carrier) === 'USPS');
+      $packageLength = $isUSPS ? 8 : ($params['length'] ?? 5);
+      $packageWidth = $isUSPS ? 6 : ($params['width'] ?? 5);
+      $packageHeight = $isUSPS ? 2 : ($params['height'] ?? 5);
+      
         $payload = [
             "rate_options" => [
                 "carrier_ids" => $allCarrierIds,
@@ -123,9 +130,9 @@ class ShipStationService
                         ],
                         "dimensions" => [
                             "unit" => $params['dim_unit'] ?? "inch",
-                            "length" => $params['length'] ?? 5,
-                            "width"  => $params['width'] ?? 5,
-                            "height" => $params['height'] ?? 5,
+                            "length" => $packageLength,
+                            "width"  => $packageWidth,
+                            "height" => $packageHeight,
                         ],
                        "label_messages" => [
                           'reference_1' => $order->order_number ?? 'N/A'

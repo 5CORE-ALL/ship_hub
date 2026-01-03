@@ -157,6 +157,11 @@ public function getAccessToken()
     $results = [];
     $today = now()->toDateString();
 
+    // Use standard dimensions (8x6x2) for USPS weight calculation
+    $standardLength = 8;
+    $standardWidth = 6;
+    $standardHeight = 2;
+
     foreach ($mailClasses as $mailClass) {
         $payload = [
             "destinationEntryFacilityType" => "NONE",
@@ -167,9 +172,9 @@ public function getAccessToken()
             "priceType"                    => "COMMERCIAL",      // ✅ updated as per your sample
             "processingCategory"           => "MACHINABLE",
             "weight"                       => (float) $weight,
-            "length"                       => (float) $length,
-            "width"                        => (float) $width,
-            "height"                       => (float) $height,
+            "length"                       => (float) $standardLength,
+            "width"                        => (float) $standardWidth,
+            "height"                       => (float) $standardHeight,
             "mailingDate"                  => $today,
         ];
 

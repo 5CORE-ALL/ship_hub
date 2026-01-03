@@ -431,10 +431,10 @@
                         <th>SKU</th>
                         <th>Default Rate</th>
                         <th>Recipient</th>
-                        <th>Height (H)</th>
-                        <th>Width (W)</th>
-                        <th>Length (L)</th>
-                        <th>Weight</th> 
+                        <th>H</th>
+                        <th>W</th>
+                        <th>L</th>
+                        <th>WT</th> 
                         <th>Qty</th>
                         <th>Order Total</th>
                     </tr>
@@ -699,37 +699,69 @@
                 },
                 {
                     data: 'height',
-                    title: 'Height (H)',
+                    title: 'H',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return (data !== null && data !== undefined && data !== '') ? data : '—';
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
                     },
                     visible: columnVisibilityMap['height'] !== undefined ? columnVisibilityMap['height'] : true
                 },
                 {
                     data: 'width',
-                    title: 'Width (W)',
+                    title: 'W',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return (data !== null && data !== undefined && data !== '') ? data : '—';
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
                     },
                     visible: columnVisibilityMap['width'] !== undefined ? columnVisibilityMap['width'] : true
                 },
                 {
                     data: 'length',
-                    title: 'Length (L)',
+                    title: 'L',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return (data !== null && data !== undefined && data !== '') ? data : '—';
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
                     },
                     visible: columnVisibilityMap['length'] !== undefined ? columnVisibilityMap['length'] : true
                 },
                 {
                     data: 'weight',
-                    title: 'Weight',
+                    title: 'WT',
                     className: 'text-end editable-cell',
                     render: function(data) {
-                        return (data !== null && data !== undefined && data !== '') ? data : '—';
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
                     },
                     visible: columnVisibilityMap['weight'] !== undefined ? columnVisibilityMap['weight'] : true
                 },
