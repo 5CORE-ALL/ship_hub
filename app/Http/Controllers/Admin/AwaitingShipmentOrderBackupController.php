@@ -93,11 +93,30 @@ class AwaitingShipmentOrderBackupController extends Controller
             ->count('orders.id');
         
         // Calculate overdue orders count (orders that arrived before 3:30 PM Ohio time today)
+        // Use the same filters as pendingCount/getAwaitingShipmentOrders for consistency
         $ohioTimezone = 'America/New_York';
         $todayCutoff = Carbon::today($ohioTimezone)->setTime(15, 30, 0); // Today at 3:30 PM Ohio time
-        $overdueCount = Order::whereIn('order_status', ['Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted'])
-            ->where('created_at', '<', $todayCutoff->utc())
-            ->count();
+        $overdueCount = Order::query()
+            ->join('order_items', 'orders.id', '=', 'order_items.order_id')
+            ->where('orders.printing_status', 0)
+            ->whereNotIn('orders.marketplace', ['walmart-s','ebay-s'])
+            ->where(function ($q) {
+                $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3','shopify_draft_order'])
+                  ->orWhereNull('orders.source_name');
+            })
+            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok','amazon'])
+            ->where('orders.queue',0)
+            ->where('marked_as_ship',0)
+            ->whereIn('orders.order_status', [
+                'Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted', 'awaiting_shipment','Created','Acknowledged','AWAITING_SHIPMENT','paid'
+            ])
+            ->where(function($query) {
+                $query->whereNotIn('cancel_status', ['CANCELED', 'IN_PROGRESS'])
+                  ->orWhereNull('cancel_status');
+            })
+            ->where('orders.created_at', '<', $todayCutoff->utc())
+            ->distinct('orders.id')
+            ->count('orders.id');
 
         // Record daily overdue count
         $today = Carbon::today($ohioTimezone);
