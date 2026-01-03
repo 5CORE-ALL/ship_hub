@@ -97,7 +97,10 @@ class AwaitingShipmentOrderBackupController extends Controller
         // Use the same filters as pendingCount/getAwaitingShipmentOrders for consistency
         $ohioTimezone = 'America/New_York';
         $todayCutoff = Carbon::today($ohioTimezone)->setTime(15, 30, 0); // Today at 3:30 PM Ohio time
-        $overdueCount = Order::query()
+        
+        // Get all orders matching the filters, then filter by date in PHP to handle timezone correctly
+        // This ensures accurate comparison regardless of how order_date is stored in the database
+        $baseQuery = Order::query()
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->where('orders.printing_status', 0)
             ->whereNotIn('orders.marketplace', ['walmart-s','ebay-s'])
@@ -115,10 +118,21 @@ class AwaitingShipmentOrderBackupController extends Controller
                 $query->whereNotIn('cancel_status', ['CANCELED', 'IN_PROGRESS'])
                   ->orWhereNull('cancel_status');
             })
-            ->whereNotNull('orders.order_date') // Ensure order_date exists
-            ->where('orders.order_date', '<', $todayCutoff->utc())
-            ->distinct('orders.id')
-            ->count('orders.id');
+            ->whereNotNull('orders.order_date')
+            ->select('orders.id', 'orders.order_date')
+            ->distinct('orders.id');
+        
+        // Get orders and filter by date in PHP to handle timezone conversion correctly
+        $orders = $baseQuery->get();
+        $overdueCount = $orders->filter(function($order) use ($todayCutoff, $ohioTimezone) {
+            if (!$order->order_date) {
+                return false;
+            }
+            // Convert order_date to Ohio timezone for comparison
+            $orderDateOhio = Carbon::parse($order->order_date)->setTimezone($ohioTimezone);
+            // Only count if order was placed before 3:30 PM Ohio time today
+            return $orderDateOhio->isBefore($todayCutoff);
+        })->count();
 
         // Record daily overdue count
         $today = Carbon::today($ohioTimezone);
