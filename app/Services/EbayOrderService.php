@@ -60,10 +60,15 @@ public function updateAfterLabelCreate(
             'lineItems'   => $lineItems,
             'shippedDate' => now()->toIso8601String(),
         ];
-        $shipment = \App\Models\Shipment::where('order_id', $order->id)->latest()->first();
-        $trackingNumber = $shipment->tracking_number ?? null;
+        
+        // Use the tracking number passed in, or fall back to the latest shipment
+        if ($trackingNumber === null) {
+            $shipment = \App\Models\Shipment::where('order_id', $order->id)->latest()->first();
+            $trackingNumber = $shipment->tracking_number ?? null;
+        }
+        
         if ($trackingNumber !== null) {
-            $payload['shippingCarrierCode'] = detectCarrier($trackingNumber);
+            $payload['shippingCarrierCode'] = detectCarrier($trackingNumber) ?? $carrier;
             $payload['trackingNumber'] = $trackingNumber;
         }
         

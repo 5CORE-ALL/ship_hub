@@ -122,8 +122,10 @@ class FulfillmentRepository
                 $shippingServiceCode
             );
         }
-        if (in_array($marketplace, ['ebay1', 'ebay3'])) {
-             $order = \App\Models\Order::with('items')->where('order_number', $orderNumber)->first();
+        $normalizedMarketplace = strtolower(trim(str_replace(' ', '', $marketplace)));
+        if (in_array($normalizedMarketplace, ['ebay1', 'ebay3'])) {
+            Log::info("➡ {$marketplace} order routed to eBay fulfillment");
+            $order = \App\Models\Order::with('items')->where('order_number', $orderNumber)->first();
             return $this->services['ebay']->updateAfterLabelCreate(
                 $storeId,
                 $orderNumber,
