@@ -92,7 +92,7 @@
                                     <div class="text-muted small">SKU: {{ $item->sku }}</div>
                                   @php
                                         $values = json_decode($order->cost->Values ?? '{}', true);
-                                        $qty    = $order->items[0]->quantity_ordered ?? 1;
+                                        $qty    = $item->quantity_ordered ?? 1;
 
                                         // Weight rule
                                         if ($qty == 1) {
