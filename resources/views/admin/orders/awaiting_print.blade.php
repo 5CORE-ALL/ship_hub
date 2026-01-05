@@ -67,9 +67,9 @@
             <button type="button" class="btn btn-info d-none" id="markAsPrintedBtn">
                 <i class="bi bi-check-circle"></i> Mark as Printed
             </button>
-           <!--  <button type="button" class="btn btn-danger d-none" id="cancelShipmentBtn">
-                <i class="bi bi-x-circle"></i> Cancel Shipment
-            </button> -->
+            <button type="button" class="btn btn-danger d-none" id="cancelShipmentBtn">
+                <i class="bi bi-x-circle"></i> Cancel Label
+            </button>
             <span id="selectedCountDisplay" class="align-self-center ms-3 text-muted small fw-bold">
              <i class="bi bi-check-square"></i> <span id="selectedCount">0</span> selected
            </span>
@@ -598,9 +598,36 @@ $(document).ready(function() {
     $('#cancelShipmentBtn').on('click', function(e) {
         e.preventDefault();
         let $button = $(this);
-        let selectedOrders = $('.order-checkbox:checked').map(function() {
-            return this.value;
-        }).get();
+        let selectedCheckboxes = $('.order-checkbox:checked');
+        
+        if (selectedCheckboxes.length < 1) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Orders Selected',
+                text: 'Please select at least one order to cancel.',
+                confirmButtonText: 'OK'
+            });
+            return;
+        }
+
+        // Collect order IDs and label IDs from selected rows
+        let selectedOrders = [];
+        let selectedLabelIds = [];
+        
+        selectedCheckboxes.each(function() {
+            let orderId = $(this).val();
+            let row = table.row($(this).closest('tr'));
+            let rowData = row.data();
+            
+            if (rowData && rowData.id) {
+                selectedOrders.push(orderId);
+                if (rowData.label_id) {
+                    selectedLabelIds.push(rowData.label_id);
+                } else {
+                    selectedLabelIds.push(null);
+                }
+            }
+        });
 
         if (selectedOrders.length < 1) {
             Swal.fire({
@@ -611,78 +638,107 @@ $(document).ready(function() {
             });
             return;
         }
+
         Swal.fire({
             icon: 'warning',
             title: 'Confirm Cancellation',
             text: `Are you sure you want to cancel ${selectedOrders.length} label${selectedOrders.length > 1 ? 's' : ''}?`,
             showCancelButton: true,
-            confirmButtonText: 'Yes, Cancel',
+            confirmButtonText: 'Yes, Proceed',
             cancelButtonText: 'No',
             confirmButtonColor: '#dc3545',
             cancelButtonColor: '#6c757d'
         }).then((result) => {
             if (result.isConfirmed) {
-                // Show loader
-                $('#loaderText').text(selectedOrders.length > 1 ? 'Cancelling Label...' : 'Cancelling Label...');
-                $('#loader').show();
-                $('body').addClass('loader-active');
-                $button.prop('disabled', true);
-
-                $.ajax({
-                    url: '{{ route("orders.cancel.shipments") }}',
-                    type: 'POST',
-                    data: {
-                        order_ids: selectedOrders,
-                        _token: '{{ csrf_token() }}'
+                Swal.fire({
+                    title: 'Cancellation Reason',
+                    input: 'textarea',
+                    inputPlaceholder: 'Enter the reason for cancellation...',
+                    inputAttributes: {
+                        autocapitalize: 'off'
                     },
-                    dataType: 'json',
-                    success: function(response) {
-                        // Hide loader and re-enable button
-                        $('#loader').hide();
-                        $('body').removeClass('loader-active');
-                        $button.prop('disabled', false);
-
-                        if (response.success) {
-                            Swal.fire({
-                                icon: 'success',
-                                title: 'Success',
-                                text: response.message || `label${selectedOrders.length > 1 ? 's' : ''} cancelled successfully!`,
-                                confirmButtonText: 'OK'
-                            });
-                            table.ajax.reload();
-                        } else {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Error',
-                                text: response.message || `Failed to cancel label${selectedOrders.length > 1 ? 's' : ''}.`,
-                                confirmButtonText: 'OK'
-                            });
+                    showCancelButton: true,
+                    confirmButtonText: 'Yes, Cancel',
+                    cancelButtonText: 'No',
+                    confirmButtonColor: '#dc3545',
+                    cancelButtonColor: '#6c757d',
+                    inputValidator: (value) => {
+                        if (!value || !value.trim()) {
+                            return 'Please provide a reason for cancellation!';
                         }
-                    },
-                    error: function(xhr) {
-                        // Hide loader and re-enable button
-                        $('#loader').hide();
-                        $('body').removeClass('loader-active');
-                        $button.prop('disabled', false);
+                    }
+                }).then((reasonResult) => {
+                    if (reasonResult.isConfirmed) {
+                        let reason = reasonResult.value.trim();
+                        // Show loader
+                        $('#loaderText').text(selectedOrders.length > 1 ? 'Cancelling Labels...' : 'Cancelling Label...');
+                        $('#loader').show();
+                        $('body').addClass('loader-active');
+                        $button.prop('disabled', true);
 
-                        let msg = `An unexpected error occurred while cancelling Label${selectedOrders.length > 1 ? 's' : ''}.`;
-                        if (xhr.responseJSON && xhr.responseJSON.message) {
-                            msg = xhr.responseJSON.message;
-                        } else if (xhr.responseText) {
-                            try {
-                                let parsed = JSON.parse(xhr.responseText);
-                                if (parsed.message) msg = parsed.message;
-                            } catch (e) {
-                                // not JSON, keep default msg
+                        $.ajax({
+                            url: '{{ route("orders.cancel.shipments") }}',
+                            type: 'POST',
+                            data: {
+                                order_ids: selectedOrders,
+                                label_ids: selectedLabelIds,
+                                reason: reason,
+                                _token: '{{ csrf_token() }}'
+                            },
+                            dataType: 'json',
+                            success: function(response) {
+                                // Hide loader and re-enable button
+                                $('#loader').hide();
+                                $('body').removeClass('loader-active');
+                                $button.prop('disabled', false);
+
+                                if (response.success) {
+                                    Swal.fire({
+                                        icon: 'success',
+                                        title: 'Success',
+                                        text: response.message || `Label${selectedOrders.length > 1 ? 's' : ''} cancelled successfully!`,
+                                        confirmButtonText: 'OK'
+                                    });
+                                    // Uncheck all checkboxes
+                                    $('.order-checkbox:checked').prop('checked', false);
+                                    $('#selectAll').prop('checked', false);
+                                    updateBulkButtons();
+                                    table.ajax.reload();
+                                } else {
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'Error',
+                                        text: response.message || `Failed to cancel label${selectedOrders.length > 1 ? 's' : ''}.`,
+                                        confirmButtonText: 'OK'
+                                    });
+                                }
+                            },
+                            error: function(xhr) {
+                                // Hide loader and re-enable button
+                                $('#loader').hide();
+                                $('body').removeClass('loader-active');
+                                $button.prop('disabled', false);
+
+                                let msg = `An unexpected error occurred while cancelling Label${selectedOrders.length > 1 ? 's' : ''}.`;
+                                if (xhr.responseJSON && xhr.responseJSON.message) {
+                                    msg = xhr.responseJSON.message;
+                                } else if (xhr.responseText) {
+                                    try {
+                                        let parsed = JSON.parse(xhr.responseText);
+                                        if (parsed.message) msg = parsed.message;
+                                    } catch (e) {
+                                        // not JSON, keep default msg
+                                    }
+                                }
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error',
+                                    text: msg,
+                                    confirmButtonText: 'OK'
+                                });
+                                console.error('AJAX Error:', xhr);
                             }
-                        }
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Error',
-                            text: msg,
-                            confirmButtonText: 'OK'
                         });
-                        console.error('AJAX Error:', xhr);
                     }
                 });
             }
@@ -694,80 +750,113 @@ $(document).ready(function() {
         e.preventDefault();
         let $button = $(this);
         let orderId = $button.data('order-id');
+        let labelId = $button.data('label-id');
+        let row = table.row($button.closest('tr'));
+        let rowData = row.data();
+        
+        // Get label_id from row data if not in button data attribute
+        if (!labelId && rowData && rowData.label_id) {
+            labelId = rowData.label_id;
+        }
 
         Swal.fire({
             icon: 'warning',
             title: 'Confirm Cancellation',
             text: 'Are you sure you want to cancel this Label?',
             showCancelButton: true,
-            confirmButtonText: 'Yes, Cancel',
+            confirmButtonText: 'Yes, Proceed',
             cancelButtonText: 'No',
             confirmButtonColor: '#dc3545',
             cancelButtonColor: '#6c757d'
         }).then((result) => {
             if (result.isConfirmed) {
-                // Reuse the bulk cancel function for single order
-                let selectedOrders = [orderId];
-                $('#loaderText').text('Cancelling Label...');
-                $('#loader').show();
-                $('body').addClass('loader-active');
-                $button.prop('disabled', true);
-
-                $.ajax({
-                    url: '{{ route("orders.cancel.shipments") }}',
-                    type: 'POST',
-                    data: {
-                        order_ids: selectedOrders,
-                        _token: '{{ csrf_token() }}'
+                Swal.fire({
+                    title: 'Cancellation Reason',
+                    input: 'textarea',
+                    inputPlaceholder: 'Enter the reason for cancellation...',
+                    inputAttributes: {
+                        autocapitalize: 'off'
                     },
-                    dataType: 'json',
-                    success: function(response) {
-                        // Hide loader and re-enable button
-                        $('#loader').hide();
-                        $('body').removeClass('loader-active');
-                        $button.prop('disabled', false);
-
-                        if (response.success) {
-                            Swal.fire({
-                                icon: 'success',
-                                title: 'Success',
-                                text: response.message || 'Label cancelled successfully!',
-                                confirmButtonText: 'OK'
-                            });
-                            table.ajax.reload();
-                        } else {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Error',
-                                text: response.message || 'Failed to cancel Label.',
-                                confirmButtonText: 'OK'
-                            });
+                    showCancelButton: true,
+                    confirmButtonText: 'Yes, Cancel',
+                    cancelButtonText: 'No',
+                    confirmButtonColor: '#dc3545',
+                    cancelButtonColor: '#6c757d',
+                    inputValidator: (value) => {
+                        if (!value || !value.trim()) {
+                            return 'Please provide a reason for cancellation!';
                         }
-                    },
-                    error: function(xhr) {
-                        // Hide loader and re-enable button
-                        $('#loader').hide();
-                        $('body').removeClass('loader-active');
-                        $button.prop('disabled', false);
+                    }
+                }).then((reasonResult) => {
+                    if (reasonResult.isConfirmed) {
+                        let reason = reasonResult.value.trim();
+                        // Reuse the bulk cancel function for single order
+                        let selectedOrders = [orderId];
+                        let selectedLabelIds = [labelId || null];
+                        $('#loaderText').text('Cancelling Label...');
+                        $('#loader').show();
+                        $('body').addClass('loader-active');
+                        $button.prop('disabled', true);
 
-                        let msg = 'An unexpected error occurred while cancelling the Label.';
-                        if (xhr.responseJSON && xhr.responseJSON.message) {
-                            msg = xhr.responseJSON.message;
-                        } else if (xhr.responseText) {
-                            try {
-                                let parsed = JSON.parse(xhr.responseText);
-                                if (parsed.message) msg = parsed.message;
-                            } catch (e) {
-                                // not JSON, keep default msg
+                        $.ajax({
+                            url: '{{ route("orders.cancel.shipments") }}',
+                            type: 'POST',
+                            data: {
+                                order_ids: selectedOrders,
+                                label_ids: selectedLabelIds,
+                                reason: reason,
+                                _token: '{{ csrf_token() }}'
+                            },
+                            dataType: 'json',
+                            success: function(response) {
+                                // Hide loader and re-enable button
+                                $('#loader').hide();
+                                $('body').removeClass('loader-active');
+                                $button.prop('disabled', false);
+
+                                if (response.success) {
+                                    Swal.fire({
+                                        icon: 'success',
+                                        title: 'Success',
+                                        text: response.message || 'Label cancelled successfully!',
+                                        confirmButtonText: 'OK'
+                                    });
+                                    table.ajax.reload();
+                                } else {
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'Error',
+                                        text: response.message || 'Failed to cancel Label.',
+                                        confirmButtonText: 'OK'
+                                    });
+                                }
+                            },
+                            error: function(xhr) {
+                                // Hide loader and re-enable button
+                                $('#loader').hide();
+                                $('body').removeClass('loader-active');
+                                $button.prop('disabled', false);
+
+                                let msg = 'An unexpected error occurred while cancelling the Label.';
+                                if (xhr.responseJSON && xhr.responseJSON.message) {
+                                    msg = xhr.responseJSON.message;
+                                } else if (xhr.responseText) {
+                                    try {
+                                        let parsed = JSON.parse(xhr.responseText);
+                                        if (parsed.message) msg = parsed.message;
+                                    } catch (e) {
+                                        // not JSON, keep default msg
+                                    }
+                                }
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error',
+                                    text: msg,
+                                    confirmButtonText: 'OK'
+                                });
+                                console.error('AJAX Error:', xhr);
                             }
-                        }
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Error',
-                            text: msg,
-                            confirmButtonText: 'OK'
                         });
-                        console.error('AJAX Error:', xhr);
                     }
                 });
             }
