@@ -126,6 +126,31 @@ class FulfillmentRepository
         if (in_array($normalizedMarketplace, ['ebay1', 'ebay3'])) {
             Log::info("➡ {$marketplace} order routed to eBay fulfillment");
             $order = \App\Models\Order::with('items')->where('order_number', $orderNumber)->first();
+            
+            // Map marketplace name to store ID if storeId is missing or 0
+            if (!$storeId || $storeId == 0) {
+                $marketplaceStoreIdMap = [
+                    'ebay1' => 3,
+                    'ebay3' => 5,
+                ];
+                $storeId = $marketplaceStoreIdMap[$normalizedMarketplace] ?? null;
+                if ($storeId) {
+                    Log::info("Mapped {$marketplace} to store_id: {$storeId}");
+                }
+            }
+            
+            // Also try to get store_id from the order if still missing
+            if ((!$storeId || $storeId == 0) && $order && $order->store_id) {
+                $storeId = $order->store_id;
+                Log::info("Using store_id from order: {$storeId}");
+            }
+            
+            // Validate storeId before proceeding
+            if (!$storeId || $storeId == 0) {
+                Log::error("❌ Cannot sync tracking for {$marketplace}: No valid store_id found");
+                return ['success' => false, 'error' => 'No valid store_id found for marketplace'];
+            }
+            
             return $this->services['ebay']->updateAfterLabelCreate(
                 $storeId,
                 $orderNumber,

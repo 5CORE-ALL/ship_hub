@@ -232,7 +232,7 @@ public function createShipment($params)
                     ]
                 ],
                 "Shipment" => [
-                    "Description" => $params['description'] ?? "Shipment via UPS",
+                    "Description" => $this->buildShipmentDescription($params),
                     "Shipper" => [
                         "Name" => $params['shipper_name'] ?? "5 Core Inc",
                         "AttentionName" => $params['shipper_attention'] ?? "5 Core Inc",
@@ -248,7 +248,7 @@ public function createShipment($params)
                     ],
                     "ShipTo" => [
                         "Name" => !empty($params['recipient_name']) ? $params['recipient_name'] : "Recipient",
-                        "AttentionName" => $params['recipient_attention'] ?? "Recipient Attn",
+                        "AttentionName" => $this->buildAttentionName($params),
                         "Phone" => ["Number" => $recipientPhone],
                         "Address" => [
                             "AddressLine" => $this->buildAddressLines(
@@ -571,22 +571,24 @@ protected function buildReferenceNumbers($params)
     $quantity = isset($params['item_quantity']) ? (int)$params['item_quantity'] : 1;
     
     if (!empty($sku)) {
-        // Format: SKU-QTYpcs (or just SKU if quantity is 1)
-        $skuValue = $quantity > 1 ? "{$sku}-{$quantity}pcs" : $sku;
+        // Format: SKU-QTY (or just SKU if quantity is 1)
+        // This format is more compact and will appear on the label
+        $skuValue = $quantity > 1 ? "{$sku}-{$quantity}" : $sku;
         
         // Limit to 35 characters (UPS ReferenceNumber max length)
         $skuValue = substr($skuValue, 0, 35);
         
+        // Use PO (Purchase Order) code for SKU reference - commonly displayed on labels
         $references[] = [
             "Code"  => "PO",
             "Value" => $skuValue
         ];
         
-        // Add quantity as a separate reference if needed
+        // Also add as IN (Invoice Number) if quantity is specified
         if ($quantity > 1) {
             $references[] = [
                 "Code"  => "IN",
-                "Value" => (string)$quantity
+                "Value" => "Qty: {$quantity}"
             ];
         }
     } else {
@@ -610,6 +612,67 @@ protected function buildPackageDescription($params)
 {
     if (!empty($params['package_description'])) {
         return $params['package_description'];
+    }
+    
+    $sku = !empty($params['item_sku']) ? $params['item_sku'] : null;
+    $quantity = isset($params['item_quantity']) ? (int)$params['item_quantity'] : 1;
+    
+    if (!empty($sku)) {
+        // Format: SKU (Qty: X) or just SKU if quantity is 1
+        return $quantity > 1 ? "{$sku} (Qty: {$quantity})" : $sku;
+    }
+    
+    return "Shipment via UPS";
+}
+
+/**
+ * Build AttentionName with SKU and quantity for better label visibility
+ * 
+ * @param array $params Parameters containing item_sku, item_quantity, and recipient_attention
+ * @return string
+ */
+protected function buildAttentionName($params)
+{
+    // Use custom attention name if provided
+    if (!empty($params['recipient_attention'])) {
+        $attentionName = $params['recipient_attention'];
+    } else {
+        $attentionName = "Recipient Attn";
+    }
+    
+    $sku = !empty($params['item_sku']) ? $params['item_sku'] : null;
+    $quantity = isset($params['item_quantity']) ? (int)$params['item_quantity'] : 1;
+    
+    if (!empty($sku)) {
+        // Format: AttentionName - SKU (Qty: X) or AttentionName - SKU
+        // UPS AttentionName max length is typically 35 characters
+        $skuInfo = $quantity > 1 ? "{$sku} (Qty: {$quantity})" : $sku;
+        $combined = "{$attentionName} - {$skuInfo}";
+        
+        // Limit to 35 characters, prioritizing SKU information
+        if (strlen($combined) > 35) {
+            // If too long, try just SKU and quantity
+            $skuInfo = $quantity > 1 ? "{$sku}-{$quantity}" : $sku;
+            $combined = strlen($skuInfo) <= 35 ? $skuInfo : substr($skuInfo, 0, 35);
+        }
+        
+        return $combined;
+    }
+    
+    return $attentionName;
+}
+
+/**
+ * Build Shipment Description with SKU and quantity
+ * 
+ * @param array $params Parameters containing item_sku, item_quantity, and description
+ * @return string
+ */
+protected function buildShipmentDescription($params)
+{
+    // Use custom description if provided
+    if (!empty($params['description'])) {
+        return $params['description'];
     }
     
     $sku = !empty($params['item_sku']) ? $params['item_sku'] : null;

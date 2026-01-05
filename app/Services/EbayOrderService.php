@@ -203,7 +203,7 @@ public function updateAfterLabelCreate(
             ->post('https://api.ebay.com/identity/v1/oauth2/token', [
                 'grant_type'    => 'refresh_token',
                 'refresh_token' => $integration->refresh_token,
-                'scope' => 'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly'
+                'scope' => 'https://api.ebay.com/oauth/api_scope/sell.fulfillment'
             ]);
 
         Log::info('eBay token refresh response', [
