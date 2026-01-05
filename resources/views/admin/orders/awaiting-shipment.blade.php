@@ -289,6 +289,10 @@
                         <th>Recipient</th>
                         <th>Quantity</th>
                         <th>Order Total</th>
+                        <th>L (D)</th>
+                        <th>W (D)</th>
+                        <th>H (D)</th>
+                        <th>WT (D)</th>
                     </tr>
                 </thead>
                 <tbody></tbody>
@@ -408,7 +412,11 @@ $(document).ready(function() {
                 }
             },
             { data: 'quantity' },
-            { data: 'order_total', render: $.fn.dataTable.render.number(',', '.', 2, '$') }
+            { data: 'order_total', render: $.fn.dataTable.render.number(',', '.', 2, '$') },
+            { data: 'length_d' },
+            { data: 'width_d' },
+            { data: 'height_d' },
+            { data: 'weight_d' }
         ],
         order: [[3, 'desc']],
         pageLength: 10,

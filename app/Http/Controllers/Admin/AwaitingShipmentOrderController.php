@@ -80,7 +80,10 @@ class AwaitingShipmentOrderController extends Controller
     $query = Order::query()
         ->select(
             'orders.*',
-            'order_items.product_name'
+            'order_items.product_name',
+            'order_items.original_weight',
+            'order_items.weight as item_weight',
+            'order_items.quantity_ordered'
         )
         ->leftJoin('order_items', 'orders.id', '=', 'order_items.order_id')
         ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
@@ -118,6 +121,23 @@ class AwaitingShipmentOrderController extends Controller
         ->skip($request->start)
         ->take($request->length)
         ->get();
+
+    // Add dimension columns (L, W, H, WT) to each order row
+    $orders = $orders->map(function ($order) {
+        // Calculate weight for this specific item row
+        // Use original_weight if available, otherwise use item_weight
+        $actualWeight = $order->original_weight ?? $order->item_weight ?? 0;
+        $quantity = $order->quantity_ordered ?? 1;
+        $totalWeight = $actualWeight * $quantity;
+        
+        // Add dimension columns
+        $order->length_d = 8;
+        $order->width_d = 6;
+        $order->height_d = 2;
+        $order->weight_d = round($totalWeight, 2);
+        
+        return $order;
+    });
 
     return response()->json([
         'draw' => intval($request->draw),
@@ -301,10 +321,40 @@ public function createPrintLabels(Request $request)
         $carrier = strtolower($service->carrier_name);
 
         foreach ($validated['order_ids'] as $orderId) {
-            $order = Order::findOrFail($orderId);
+            $order = Order::with('items')->findOrFail($orderId);
 
             $street1 = substr(trim($order->ship_address1 ?? ''), 0, 35) ?: 'Unknown Street';
             $street2 = substr(trim($order->ship_address2 ?? ''), 0, 35) ?: null;
+
+            // Calculate dimension values (L (D), W (D), H (D), WT (D)) from order items
+            $lengthD = 8;
+            $widthD = 6;
+            $heightD = 2;
+            $weightD = 0;
+            
+            // Calculate weight_d: actual_weight * quantity for each item
+            foreach ($order->items as $item) {
+                $actualWeight = $item->original_weight ?? $item->weight ?? 0;
+                $quantity = $item->quantity_ordered ?? 1;
+                $weightD += ($actualWeight * $quantity);
+            }
+            
+            // Convert weight to pounds based on weight_unit
+            // Check weight_unit from first item if available, otherwise assume ounces
+            $weightUnit = $order->items->first()->weight_unit ?? 'oz';
+            if (strtolower($weightUnit) === 'oz' || strtolower($weightUnit) === 'ounce') {
+                $weightInPounds = $weightD / 16; // Convert ounces to pounds
+            } elseif (strtolower($weightUnit) === 'lb' || strtolower($weightUnit) === 'pound') {
+                $weightInPounds = $weightD; // Already in pounds
+            } else {
+                // Default assumption: ounces (common in shipping)
+                $weightInPounds = $weightD / 16;
+            }
+            
+            // Fallback to form input if calculated weight is 0 or invalid
+            if ($weightInPounds <= 0) {
+                $weightInPounds = $validated['weight_lb'] + ($validated['weight_oz'] / 16);
+            }
 
             $shipmentData = [
                 'shipper_name'      => $order->shipper_name ?? '5 Core Inc',
@@ -330,10 +380,10 @@ public function createPrintLabels(Request $request)
                 'service_type'      => $validated['service_code'],
                 'packaging_type'    => $validated['package_type'],
                 'weight_unit'       => 'LB',
-                'weight'            => $validated['weight_lb'] + ($validated['weight_oz'] / 16),
-                'length'            => $validated['length'],
-                'width'             => $validated['width'],
-                'height'            => $validated['height'],
+                'weight'            => $weightInPounds,
+                'length'            => $lengthD,
+                'width'             => $widthD,
+                'height'            => $heightD,
                 'dimension_unit'    => 'IN',
                 'label_type'        => 'PDF',
                 'label_stock'       => 'PAPER_4X6',
