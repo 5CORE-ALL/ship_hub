@@ -258,11 +258,14 @@ class ShippingLabelService
                         !isset($label["success"]) || $label["success"] !== true;
                     if ($isFailed) {
                         $failedCount++;
+                        // Preserve original order_status to keep order visible in awaiting shipment
+                        // Only update label_status and printing_status, don't change order_status
                         $order->update([
                             "label_status" => "failed",
                             "printing_status" => 0,
-                            "order_status" => "unshipped",
-                            "fulfillment_status" => "pending",
+                            // Keep original order_status - don't change it
+                            // "order_status" => "unshipped", // REMOVED - preserve original status
+                            // "fulfillment_status" => "pending", // REMOVED - preserve original status
                         ]);
 
                         Log::error(
@@ -387,11 +390,13 @@ class ShippingLabelService
                                 "trace" => $e->getTraceAsString(),
                             ]);
                             $failedCount++;
+                            // Preserve original order_status to keep order visible in awaiting shipment
                             $order->update([
                                 "label_status" => "failed",
                                 "printing_status" => 0,
-                                "order_status" => "unshipped",
-                                "fulfillment_status" => "pending",
+                                // Keep original order_status - don't change it
+                                // "order_status" => "unshipped", // REMOVED - preserve original status
+                                // "fulfillment_status" => "pending", // REMOVED - preserve original status
                             ]);
                             $result = [
                                 "success" => false,
@@ -440,10 +445,12 @@ class ShippingLabelService
 
                     if ($isFailed) {
                         $failedCount++;
+                        // Preserve original order_status to keep order visible in awaiting shipment
                         $order->update([
                             "label_status" => "failed",
                             "printing_status" => 0,
-                            "order_status" => "unshipped",
+                            // Keep original order_status - don't change it
+                            // "order_status" => "unshipped", // REMOVED - preserve original status
                         ]);
 
                         Log::error(
@@ -562,10 +569,12 @@ class ShippingLabelService
                                 "trace" => $e->getTraceAsString(),
                             ]);
                             $failedCount++;
+                            // Preserve original order_status to keep order visible in awaiting shipment
                             $order->update([
                                 "label_status" => "failed",
                                 "printing_status" => 0,
-                                "order_status" => "unshipped",
+                                // Keep original order_status - don't change it
+                                // "order_status" => "unshipped", // REMOVED - preserve original status
                             ]);
                             $result = [
                                 "success" => false,
@@ -613,12 +622,13 @@ class ShippingLabelService
                             ($label["errors"][0]["message"] ??
                                 "Unknown ShipStation error");
 
-                        // Update order as failed
+                        // Preserve original order_status to keep order visible in awaiting shipment
                         $order->update([
                             "label_status" => "failed",
                             "printing_status" => 0,
-                            "order_status" => "unshipped",
-                            "fulfillment_status" => "pending",
+                            // Keep original order_status - don't change it
+                            // "order_status" => "unshipped", // REMOVED - preserve original status
+                            // "fulfillment_status" => "pending", // REMOVED - preserve original status
                         ]);
 
                         Log::warning(
@@ -749,11 +759,13 @@ class ShippingLabelService
                                 "trace" => $e->getTraceAsString(),
                             ]);
                             $failedCount++;
+                            // Preserve original order_status to keep order visible in awaiting shipment
                             $order->update([
                                 "label_status" => "failed",
                                 "printing_status" => 0,
-                                "order_status" => "unshipped",
-                                "fulfillment_status" => "pending",
+                                // Keep original order_status - don't change it
+                                // "order_status" => "unshipped", // REMOVED - preserve original status
+                                // "fulfillment_status" => "pending", // REMOVED - preserve original status
                             ]);
                             $result = [
                                 "success" => false,
@@ -764,12 +776,13 @@ class ShippingLabelService
                     } else {
                         $failedCount++;
 
-                        // Mark order as unshipped for unexpected response
+                        // Preserve original order_status to keep order visible in awaiting shipment
                         $order->update([
                             "label_status" => "failed",
-                            "order_status" => "unshipped",
+                            // Keep original order_status - don't change it
+                            // "order_status" => "unshipped", // REMOVED - preserve original status
                             "printing_status" => 0,
-                            "fulfillment_status" => "pending",
+                            // "fulfillment_status" => "pending", // REMOVED - preserve original status
                         ]);
 
                         \DB::table("transaction_logs")->insert([
@@ -878,9 +891,34 @@ class ShippingLabelService
                     "ShippingLabelService: createLabel error for order {$orderId}",
                     [
                         "message" => $e->getMessage(),
+                        "trace" => $e->getTraceAsString(),
                     ]
                 );
-                // Order::where('id', $orderId)->update(['queue' => 0]);
+                
+                // Ensure order is unlocked even on exception
+                try {
+                    Order::where('id', $orderId)->update(['queue' => 0]);
+                } catch (\Exception $unlockException) {
+                    Log::error("Failed to unlock order {$orderId} after exception", [
+                        "unlock_error" => $unlockException->getMessage()
+                    ]);
+                }
+                
+                // Preserve original order_status - only mark label as failed
+                try {
+                    $order = Order::find($orderId);
+                    if ($order) {
+                        $order->update([
+                            "label_status" => "failed",
+                            "printing_status" => 0,
+                            // Keep original order_status - don't change it
+                        ]);
+                    }
+                } catch (\Exception $updateException) {
+                    Log::error("Failed to update order {$orderId} status after exception", [
+                        "update_error" => $updateException->getMessage()
+                    ]);
+                }
 
                 $labels[] = [
                     "order_id" => $orderId,
@@ -888,6 +926,8 @@ class ShippingLabelService
                     "message" => $e->getMessage(),
                 ];
                 $failedCount++;
+                // Continue to next order - don't break the loop
+                continue;
             }
         }
         $successOrderIds = collect($labels)
@@ -960,11 +1000,12 @@ class ShippingLabelService
                     "order_id" => $successOrderId,
                 ]);
                 
-                // Mark order as failed and update labels array
+                // Mark order as failed but preserve order_status to keep it visible
                 Order::where('id', $successOrderId)->update([
                     "label_status" => "failed",
                     "printing_status" => 0,
-                    "order_status" => "unshipped",
+                    // Keep original order_status - don't change it
+                    // "order_status" => "unshipped", // REMOVED - preserve original status
                 ]);
                 
                 // Update the label entry to reflect failure
