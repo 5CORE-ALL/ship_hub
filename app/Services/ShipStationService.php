@@ -81,11 +81,12 @@ class ShipStationService
       $companyName = ($order->order_number ?? 'N/A');
       $companyName = preg_replace('/[^A-Za-z0-9\s\-\_]/', '', $companyName);
       
-      // Use standard dimensions (8x6x2) for USPS, otherwise use dimensions from params
-      $isUSPS = (strtoupper($carrier) === 'USPS');
-      $packageLength = $isUSPS ? 8 : ($params['length'] ?? 5);
-      $packageWidth = $isUSPS ? 6 : ($params['width'] ?? 5);
-      $packageHeight = $isUSPS ? 2 : ($params['height'] ?? 5);
+      // Use standard dimensions (8x6x2) for USPS and Sendle only, not for UPS
+      $carrierUpper = strtoupper($carrier);
+      $isUSPSOrSendle = ($carrierUpper === 'USPS' || $carrierUpper === 'SENDLE');
+      $packageLength = $isUSPSOrSendle ? 8 : ($params['length'] ?? 5);
+      $packageWidth = $isUSPSOrSendle ? 6 : ($params['width'] ?? 5);
+      $packageHeight = $isUSPSOrSendle ? 2 : ($params['height'] ?? 5);
       
         $payload = [
             "rate_options" => [
