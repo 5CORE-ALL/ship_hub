@@ -300,62 +300,105 @@ class ShippingLabelService
                             )
                             : null;
 
-                        DB::transaction(function () use ($order, $label, $trackingNumber, $userId) {
-                            $order->update([
-                                "label_id" => $label["label_id"] ?? null,
-                                "tracking_number" => $trackingNumber ?? null,
-                                "label_url" => $label["labelUrl"] ?? null,
-                                "shipping_carrier" => $label["raw"]["carrier_code"] ?? "sendle",
-                                "shipping_service" => $label["raw"]["service_code"] ?? null,
-                                "shipping_cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
-                                "ship_date" => $label["shipDate"] ?? now(),
-                                "label_status" => "purchased",
-                                "label_source" => "api",
-                                "fulfillment_status" => "shipped",
-                                "order_status" => "Shipped",
-                                "printing_status" => 1,
-                            ]);
+                        // CRITICAL FIX: Wrap in transaction with verification
+                        try {
+                            DB::transaction(function () use ($order, $label, $trackingNumber, $userId, &$shipment) {
+                                // Update order first
+                                $order->update([
+                                    "label_id" => $label["label_id"] ?? null,
+                                    "tracking_number" => $trackingNumber ?? null,
+                                    "label_url" => $label["labelUrl"] ?? null,
+                                    "shipping_carrier" => $label["raw"]["carrier_code"] ?? "sendle",
+                                    "shipping_service" => $label["raw"]["service_code"] ?? null,
+                                    "shipping_cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
+                                    "ship_date" => $label["shipDate"] ?? now(),
+                                    "label_status" => "purchased",
+                                    "label_source" => "api",
+                                    "fulfillment_status" => "shipped",
+                                    "order_status" => "Shipped",
+                                    "printing_status" => 1,
+                                ]);
 
-                            Shipment::create([
-                                "order_id" => $order->id,
-                                "tracking_number" => $trackingNumber,
-                                "carrier" => detectCarrier($trackingNumber) ?: 'Standard',
-                                "label_id" => $label["label_id"] ?? null,
-                                "service_type" => $label["raw"]["service_code"] ?? null,
-                                "package_weight" => $label["raw"]["packages"][0]["weight"]["value"] ?? null,
-                                "package_dimensions" => json_encode($label["raw"]["packages"][0]["dimensions"] ?? []),
-                                "label_url" => $label["labelUrl"] ?? null,
-                                "shipment_status" => "created",
-                                "label_data" => json_encode($label),
-                                "ship_date" => now(),
-                                "cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
-                                "currency" => $label["raw"]["shipment_cost"]["currency"] ?? "USD",
-                                "tracking_url" => $label["raw"]["tracking_url"] ?? null,
-                                "label_status" => "active",
-                                "void_status" => "active",
-                                "created_by" => $userId
-                            ]);
+                                // Create shipment - if this fails, transaction will rollback order update
+                                $shipment = Shipment::create([
+                                    "order_id" => $order->id,
+                                    "tracking_number" => $trackingNumber,
+                                    "carrier" => detectCarrier($trackingNumber) ?: 'Standard',
+                                    "label_id" => $label["label_id"] ?? null,
+                                    "service_type" => $label["raw"]["service_code"] ?? null,
+                                    "package_weight" => $label["raw"]["packages"][0]["weight"]["value"] ?? null,
+                                    "package_dimensions" => json_encode($label["raw"]["packages"][0]["dimensions"] ?? []),
+                                    "label_url" => $label["labelUrl"] ?? null,
+                                    "shipment_status" => "created",
+                                    "label_data" => json_encode($label),
+                                    "ship_date" => now(),
+                                    "cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
+                                    "currency" => $label["raw"]["shipment_cost"]["currency"] ?? "USD",
+                                    "tracking_url" => $label["raw"]["tracking_url"] ?? null,
+                                    "label_status" => "active",
+                                    "void_status" => "active",
+                                    "created_by" => $userId
+                                ]);
 
-                            // Sync tracking number to platform
-                            if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
-                                $this->fulfillmentRepo->createFulfillment(
-                                    $order->marketplace,
-                                    $order->store_id ?? 0,
-                                    $order->order_number,
-                                    $trackingNumber,
-                                    detectCarrier($trackingNumber),
-                                    $label["raw"]["service_code"] ?? null
-                                );
+                                // Verify shipment was created successfully
+                                if (!$shipment || !$shipment->id) {
+                                    throw new \Exception("Shipment creation failed - no ID returned");
+                                }
+                            });
+
+                            // Verify shipment exists after transaction
+                            $shipment = Shipment::where('order_id', $order->id)
+                                ->where('label_status', 'active')
+                                ->latest()
+                                ->first();
+
+                            if (!$shipment) {
+                                throw new \Exception("Shipment verification failed - no active shipment found after creation");
                             }
-                        });
 
-                        $successCount++;
-                        Log::info("✅ Order {$order->id} and shipment created successfully");
+                            $successCount++;
+                            Log::info("✅ Order {$order->id} and shipment created successfully (Sendle)");
 
-                        $result = [
-                            "success" => true,
-                            "label_url" => $label["labelUrl"] ?? null,
-                        ];
+                            // Sync tracking number to platform (outside transaction - non-critical)
+                            if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
+                                try {
+                                    $this->fulfillmentRepo->createFulfillment(
+                                        $order->marketplace,
+                                        $order->store_id ?? 0,
+                                        $order->order_number,
+                                        $trackingNumber,
+                                        detectCarrier($trackingNumber),
+                                        $label["raw"]["service_code"] ?? null
+                                    );
+                                } catch (\Exception $e) {
+                                    Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                                }
+                            }
+                            
+                            // Set success result after successful transaction
+                            $result = [
+                                "success" => true,
+                                "label_url" => $label["labelUrl"] ?? null,
+                            ];
+                        } catch (\Exception $e) {
+                            // Transaction failed or shipment creation failed - rollback happened automatically
+                            Log::error("CRITICAL: Sendle transaction failed for order {$orderId}", [
+                                "error" => $e->getMessage(),
+                                "trace" => $e->getTraceAsString(),
+                            ]);
+                            $failedCount++;
+                            $order->update([
+                                "label_status" => "failed",
+                                "printing_status" => 0,
+                                "order_status" => "unshipped",
+                                "fulfillment_status" => "pending",
+                            ]);
+                            $result = [
+                                "success" => false,
+                                "error" => "Transaction failed: " . $e->getMessage(),
+                                "message" => "Failed to create shipment: " . $e->getMessage(),
+                            ];
+                        }
                     }
                 } elseif ($provider === "shippo") {
                     try {
@@ -420,74 +463,116 @@ class ShippingLabelService
                                 ($label["error"] ?? []),
                         ];
                     } else {
-                        $successCount++;
-                        $order->update([
-                            "label_id" => $label["label_id"] ?? null,
-                            "tracking_number" =>
-                                $label["trackingNumber"] ?? null,
-                            "label_url" => $label["labelUrl"] ?? null,
-                            "shipping_carrier" => $carrier,
-                            "shipping_service" => $service,
-                            "shipping_cost" => $shippingCost,
-                            "ship_date" =>
-                                $label["raw"]["object_created"] ?? now(),
-                            "label_status" => "purchased",
-                            "label_source" => "api",
-                            "fulfillment_status" => "shipped",
-                            "order_status" => "Shipped",
-                            "printing_status" => 1,
-                        ]);
+                        // CRITICAL FIX: Wrap in transaction to ensure atomicity
+                        // Either both order update AND shipment creation succeed, or neither happens
+                        try {
+                            DB::transaction(function () use ($order, $label, $carrier, $service, $shippingCost, $userId, &$shipment) {
+                                // Update order first
+                                $order->update([
+                                    "label_id" => $label["label_id"] ?? null,
+                                    "tracking_number" =>
+                                        $label["trackingNumber"] ?? null,
+                                    "label_url" => $label["labelUrl"] ?? null,
+                                    "shipping_carrier" => $carrier,
+                                    "shipping_service" => $service,
+                                    "shipping_cost" => $shippingCost,
+                                    "ship_date" =>
+                                        $label["raw"]["object_created"] ?? now(),
+                                    "label_status" => "purchased",
+                                    "label_source" => "api",
+                                    "fulfillment_status" => "shipped",
+                                    "order_status" => "Shipped",
+                                    "printing_status" => 1,
+                                ]);
 
-                        $shipment = Shipment::create([
-                            "order_id" => $order->id,
-                            "tracking_number" =>
-                                $label["trackingNumber"] ?? null,
-                            "carrier" => detectCarrier($label["trackingNumber"]) ?: 'Standard',
-                            "label_id" => $label["label_id"] ?? null,
-                            "service_type" => $label["raw"]["rate"] ?? null,
-                            "package_weight" =>
-                                $label["raw"]["parcel"]["weight"] ?? null,
-                            "package_dimensions" => json_encode(
-                                $label["raw"]["parcel"]["dimensions"] ?? []
-                            ),
-                            "label_url" => $label["labelUrl"] ?? null,
-                            "shipment_status" => "created",
-                            "label_data" => json_encode($label),
-                            "ship_date" =>
-                                $label["raw"]["object_created"] ?? now(),
-                            "cost" => $shippingCost,
-                            "currency" =>
-                                $label["raw"]["shipment_cost"]["currency"] ??
-                                "USD",
-                            "tracking_url" =>
-                                $label["raw"]["tracking_url_provider"] ?? null,
-                            "label_status" => "active",
-                            "void_status" => "active",
-                            "created_by"=>$userId
-                        ]);
+                                // Create shipment - if this fails, transaction will rollback order update
+                                $shipment = Shipment::create([
+                                    "order_id" => $order->id,
+                                    "tracking_number" =>
+                                        $label["trackingNumber"] ?? null,
+                                    "carrier" => detectCarrier($label["trackingNumber"]) ?: 'Standard',
+                                    "label_id" => $label["label_id"] ?? null,
+                                    "service_type" => $label["raw"]["rate"] ?? null,
+                                    "package_weight" =>
+                                        $label["raw"]["parcel"]["weight"] ?? null,
+                                    "package_dimensions" => json_encode(
+                                        $label["raw"]["parcel"]["dimensions"] ?? []
+                                    ),
+                                    "label_url" => $label["labelUrl"] ?? null,
+                                    "shipment_status" => "created",
+                                    "label_data" => json_encode($label),
+                                    "ship_date" =>
+                                        $label["raw"]["object_created"] ?? now(),
+                                    "cost" => $shippingCost,
+                                    "currency" =>
+                                        $label["raw"]["shipment_cost"]["currency"] ??
+                                        "USD",
+                                    "tracking_url" =>
+                                        $label["raw"]["tracking_url_provider"] ?? null,
+                                    "label_status" => "active",
+                                    "void_status" => "active",
+                                    "created_by"=>$userId
+                                ]);
 
-                        // Sync tracking number to platform
-                        $trackingNumber = $label["trackingNumber"] ?? null;
-                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
-                            try {
-                                $this->fulfillmentRepo->createFulfillment(
-                                    $order->marketplace,
-                                    $order->store_id ?? 0,
-                                    $order->order_number,
-                                    $trackingNumber,
-                                    $carrier,
-                                    $service
-                                );
-                                Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
-                            } catch (\Exception $e) {
-                                Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                                // Verify shipment was created successfully
+                                if (!$shipment || !$shipment->id) {
+                                    throw new \Exception("Shipment creation failed - no ID returned");
+                                }
+                            });
+
+                            // Verify shipment exists after transaction
+                            $shipment = Shipment::where('order_id', $order->id)
+                                ->where('label_status', 'active')
+                                ->latest()
+                                ->first();
+
+                            if (!$shipment) {
+                                throw new \Exception("Shipment verification failed - no active shipment found after creation");
                             }
-                        }
 
-                        $result = [
-                            "success" => true,
-                            "label_url" => $label["labelUrl"] ?? null,
-                        ];
+                            $successCount++;
+                            Log::info("✅ Order {$order->id} and shipment created successfully (Shippo)");
+
+                            // Sync tracking number to platform (outside transaction - non-critical)
+                            $trackingNumber = $label["trackingNumber"] ?? null;
+                            if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
+                                try {
+                                    $this->fulfillmentRepo->createFulfillment(
+                                        $order->marketplace,
+                                        $order->store_id ?? 0,
+                                        $order->order_number,
+                                        $trackingNumber,
+                                        $carrier,
+                                        $service
+                                    );
+                                    Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
+                                } catch (\Exception $e) {
+                                    Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                                }
+                            }
+
+                            $result = [
+                                "success" => true,
+                                "label_url" => $label["labelUrl"] ?? null,
+                            ];
+                        } catch (\Exception $e) {
+                            // Transaction failed or shipment creation failed - rollback happened automatically
+                            Log::error("CRITICAL: Shippo transaction failed for order {$orderId}", [
+                                "error" => $e->getMessage(),
+                                "trace" => $e->getTraceAsString(),
+                            ]);
+                            $failedCount++;
+                            $order->update([
+                                "label_status" => "failed",
+                                "printing_status" => 0,
+                                "order_status" => "unshipped",
+                            ]);
+                            $result = [
+                                "success" => false,
+                                "error" => "Transaction failed: " . $e->getMessage(),
+                                "message" => "Failed to create shipment: " . $e->getMessage(),
+                            ];
+                        }
                     }
                 }
                 else {
@@ -552,88 +637,130 @@ class ShippingLabelService
                         $isSuccess &&
                         !empty($label["label_id"])
                     ) {
-                        $successCount++;
+                        // CRITICAL FIX: Wrap in transaction to ensure atomicity
+                        // Either both order update AND shipment creation succeed, or neither happens
+                        try {
+                            // Extract shipping cost from multiple possible locations
+                            $shippingCost = $label["raw"]["shipment_cost"]["amount"] ?? 
+                                           $label["raw"]["shipment_cost"] ?? 
+                                           $label["raw"]["cost"] ?? 
+                                           $label["raw"]["shipping_cost"] ?? 
+                                           $label["cost"] ?? 
+                                           0;
+                            
+                            // Extract currency from multiple possible locations
+                            $currency = $label["raw"]["shipment_cost"]["currency"] ?? 
+                                       $label["raw"]["currency"] ?? 
+                                       $label["currency"] ?? 
+                                       "USD";
 
-                        // Extract shipping cost from multiple possible locations
-                        $shippingCost = $label["raw"]["shipment_cost"]["amount"] ?? 
-                                       $label["raw"]["shipment_cost"] ?? 
-                                       $label["raw"]["cost"] ?? 
-                                       $label["raw"]["shipping_cost"] ?? 
-                                       $label["cost"] ?? 
-                                       0;
-                        
-                        // Extract currency from multiple possible locations
-                        $currency = $label["raw"]["shipment_cost"]["currency"] ?? 
-                                   $label["raw"]["currency"] ?? 
-                                   $label["currency"] ?? 
-                                   "USD";
+                            DB::transaction(function () use ($order, $orderId, $label, $shippingCost, $currency, $userId, &$shipment) {
+                                // Update order first
+                                $order->update([
+                                    "label_id" => $label["label_id"],
+                                    "tracking_number" =>
+                                        $label["trackingNumber"] ?? null,
+                                    "label_url" => $label["labelUrl"] ?? null,
+                                    "shipping_carrier" =>
+                                        $label["raw"]["carrier_code"] ?? null,
+                                    "shipping_service" =>
+                                        $label["raw"]["service_code"] ?? null,
+                                    "shipping_cost" => $shippingCost,
+                                    "ship_date" => $label["shipDate"] ?? $label["raw"]["ship_date"] ?? now(),
+                                    "label_status" => "purchased",
+                                    "label_source" => "api",
+                                    "fulfillment_status" => "shipped",
+                                    "order_status" => "Shipped",
+                                    "printing_status" => 1,
+                                ]);
 
-                        $order->update([
-                            "label_id" => $label["label_id"],
-                            "tracking_number" =>
-                                $label["trackingNumber"] ?? null,
-                            "label_url" => $label["labelUrl"] ?? null,
-                            "shipping_carrier" =>
-                                $label["raw"]["carrier_code"] ?? null,
-                            "shipping_service" =>
-                                $label["raw"]["service_code"] ?? null,
-                            "shipping_cost" => $shippingCost,
-                            "ship_date" => $label["shipDate"] ?? $label["raw"]["ship_date"] ?? now(),
-                            "label_status" => "purchased",
-                            "label_source" => "api",
-                            "fulfillment_status" => "shipped",
-                            "order_status" => "Shipped",
-                            "printing_status" => 1,
-                        ]);
+                                // Create shipment - if this fails, transaction will rollback order update
+                                $shipment = Shipment::create([
+                                    "order_id" => $orderId,
+                                    "tracking_number" => $label["trackingNumber"],
+                                    "carrier" =>  detectCarrier($label["trackingNumber"]) ?: 'Standard',
+                                    "label_id" => $label["label_id"],
+                                    "service_type" => $label["raw"]["service_code"] ?? null,
+                                    "package_weight" =>
+                                        $label["raw"]["packages"][0]["weight"][
+                                            "value"
+                                        ] ?? $label["raw"]["packages"][0]["weight"] ?? null,
+                                    "package_dimensions" => json_encode(
+                                        $label["raw"]["packages"][0]["dimensions"] ?? []
+                                    ),
+                                    "label_url" => $label["labelUrl"],
+                                    "shipment_status" => "created",
+                                    "label_data" => json_encode($label),
+                                    "ship_date" => now(),
+                                    "cost" => $shippingCost,
+                                    "currency" => $currency,
+                                    "tracking_url" =>
+                                        $label["raw"]["tracking_url"] ?? null,
+                                    "label_status" => "active",
+                                    "void_status" => "active",
+                                    "created_by"=>$userId
+                                ]);
 
-                        $shipment = Shipment::create([
-                            "order_id" => $orderId,
-                            "tracking_number" => $label["trackingNumber"],
-                            "carrier" =>  detectCarrier($label["trackingNumber"]) ?: 'Standard',
-                            "label_id" => $label["label_id"],
-                            "service_type" => $label["raw"]["service_code"] ?? null,
-                            "package_weight" =>
-                                $label["raw"]["packages"][0]["weight"][
-                                    "value"
-                                ] ?? $label["raw"]["packages"][0]["weight"] ?? null,
-                            "package_dimensions" => json_encode(
-                                $label["raw"]["packages"][0]["dimensions"] ?? []
-                            ),
-                            "label_url" => $label["labelUrl"],
-                            "shipment_status" => "created",
-                            "label_data" => json_encode($label),
-                            "ship_date" => now(),
-                            "cost" => $shippingCost,
-                            "currency" => $currency,
-                            "tracking_url" =>
-                                $label["raw"]["tracking_url"] ?? null,
-                            "label_status" => "active",
-                            "void_status" => "active",
-                            "created_by"=>$userId
-                        ]);
+                                // Verify shipment was created successfully
+                                if (!$shipment || !$shipment->id) {
+                                    throw new \Exception("Shipment creation failed - no ID returned");
+                                }
+                            });
 
-                        // Sync tracking number to platform
-                        $trackingNumber = $label["trackingNumber"] ?? null;
-                        if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
-                            try {
-                                $this->fulfillmentRepo->createFulfillment(
-                                    $order->marketplace,
-                                    $order->store_id ?? 0,
-                                    $order->order_number,
-                                    $trackingNumber,
-                                    $label["raw"]["carrier_code"] ?? null,
-                                    $label["raw"]["service_code"] ?? null
-                                );
-                                Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
-                            } catch (\Exception $e) {
-                                Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                            // Verify shipment exists after transaction
+                            $shipment = Shipment::where('order_id', $orderId)
+                                ->where('label_status', 'active')
+                                ->latest()
+                                ->first();
+
+                            if (!$shipment) {
+                                throw new \Exception("Shipment verification failed - no active shipment found after creation");
                             }
-                        }
 
-                        $result = [
-                            "success" => true,
-                            "label_url" => $label["labelUrl"],
-                        ];
+                            $successCount++;
+                            Log::info("✅ Order {$orderId} and shipment created successfully (ShipStation)");
+
+                            // Sync tracking number to platform (outside transaction - non-critical)
+                            $trackingNumber = $label["trackingNumber"] ?? null;
+                            if ($trackingNumber && $order->marketplace && $order->is_manual == 0) {
+                                try {
+                                    $this->fulfillmentRepo->createFulfillment(
+                                        $order->marketplace,
+                                        $order->store_id ?? 0,
+                                        $order->order_number,
+                                        $trackingNumber,
+                                        $label["raw"]["carrier_code"] ?? null,
+                                        $label["raw"]["service_code"] ?? null
+                                    );
+                                    Log::info("✅ Tracking number synced to {$order->marketplace} for order {$order->order_number}");
+                                } catch (\Exception $e) {
+                                    Log::warning("⚠️ Failed to sync tracking to {$order->marketplace} for order {$order->order_number}: " . $e->getMessage());
+                                }
+                            }
+
+                            $result = [
+                                "success" => true,
+                                "label_url" => $label["labelUrl"],
+                            ];
+                        } catch (\Exception $e) {
+                            // Transaction failed or shipment creation failed - rollback happened automatically
+                            Log::error("CRITICAL: ShipStation transaction failed for order {$orderId}", [
+                                "error" => $e->getMessage(),
+                                "trace" => $e->getTraceAsString(),
+                            ]);
+                            $failedCount++;
+                            $order->update([
+                                "label_status" => "failed",
+                                "printing_status" => 0,
+                                "order_status" => "unshipped",
+                                "fulfillment_status" => "pending",
+                            ]);
+                            $result = [
+                                "success" => false,
+                                "error" => "Transaction failed: " . $e->getMessage(),
+                                "message" => "Failed to create shipment: " . $e->getMessage(),
+                            ];
+                        }
                     } else {
                         $failedCount++;
 
@@ -807,6 +934,70 @@ class ShippingLabelService
                 ->where("success", false)
                 ->pluck("order_id")
                 ->values();
+        }
+        
+        // CRITICAL VALIDATION: Verify all successful orders have active shipments
+        // This catches cases where order was updated but shipment creation failed silently
+        // Note: Orders that already had shipments (skipped) are excluded from this check
+        // because they were already verified to have shipments before being marked as success
+        $ordersWithoutShipments = [];
+        foreach ($successOrderIds as $successOrderId) {
+            // Skip validation for orders that were skipped (already had shipments)
+            // These are safe because we verified they had shipments before marking as success
+            $labelEntry = collect($labels)->firstWhere('order_id', $successOrderId);
+            if ($labelEntry && isset($labelEntry["message"]) && strpos($labelEntry["message"], "Active label already exists") !== false) {
+                // This order already had a shipment, skip validation
+                continue;
+            }
+            
+            $hasActiveShipment = Shipment::where('order_id', $successOrderId)
+                ->where('label_status', 'active')
+                ->exists();
+            
+            if (!$hasActiveShipment) {
+                $ordersWithoutShipments[] = $successOrderId;
+                Log::error("CRITICAL: Order marked as success but has no active shipment!", [
+                    "order_id" => $successOrderId,
+                ]);
+                
+                // Mark order as failed and update labels array
+                Order::where('id', $successOrderId)->update([
+                    "label_status" => "failed",
+                    "printing_status" => 0,
+                    "order_status" => "unshipped",
+                ]);
+                
+                // Update the label entry to reflect failure
+                foreach ($labels as &$labelEntry) {
+                    if ($labelEntry["order_id"] == $successOrderId && isset($labelEntry["success"]) && $labelEntry["success"] === true) {
+                        $labelEntry["success"] = false;
+                        $labelEntry["error"] = "Shipment verification failed - no active shipment found";
+                        $labelEntry["message"] = "Order was updated but shipment was not created";
+                        break;
+                    }
+                }
+                unset($labelEntry); // Break reference
+                
+                $successCount--;
+                $failedCount++;
+            }
+        }
+        
+        // Recalculate after validation
+        $successOrderIds = collect($labels)
+            ->where("success", true)
+            ->pluck("order_id")
+            ->values();
+        $failedOrderIds = collect($labels)
+            ->where("success", false)
+            ->pluck("order_id")
+            ->values();
+        
+        if (!empty($ordersWithoutShipments)) {
+            Log::error("CRITICAL: Found orders without shipments after processing", [
+                "order_ids" => $ordersWithoutShipments,
+                "total_fixed" => count($ordersWithoutShipments),
+            ]);
         }
         
         $summary = [
