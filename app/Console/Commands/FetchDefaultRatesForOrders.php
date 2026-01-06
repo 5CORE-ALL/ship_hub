@@ -57,10 +57,13 @@ class FetchDefaultRatesForOrders extends Command
             try {
                 $shipper = Shipper::first();
 
-                $length = $order->length ?? 4.0;
-                $width  = $order->width ?? 4.0;
-                $height = $order->height ?? 7.0;
-                $weight = $order->weight ?? 0.25;
+                // Get dimensions from order_items relationship (sum for multiple items)
+                // Using D columns: length_d, width_d, height_d, weight_d
+                $order->load('items');
+                $length = $order->items->sum('length_d') ?: 4.0;
+                $width  = $order->items->sum('width_d') ?: 4.0;
+                $height = $order->items->sum('height_d') ?: 7.0;
+                $weight = $order->items->sum('weight_d') ?: 0.25;
 
 
                 $params = [

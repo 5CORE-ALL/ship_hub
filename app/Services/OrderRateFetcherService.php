@@ -79,10 +79,10 @@ class OrderRateFetcherService
         // Get dimensions from order_items relationship (sum for multiple items)
         // This ensures we get the latest updated values, not from join
         $order->load('items');
-        $length = $order->items->sum('length') ?: 4.0;
-        $width  = $order->items->sum('width') ?: 4.0;
-        $height = $order->items->sum('height') ?: 7.0;
-        $weight = $order->items->sum('weight') ?: 0.25;
+        $length = $order->items->sum('length_d') ?: 4.0;
+        $width  = $order->items->sum('width_d') ?: 4.0;
+        $height = $order->items->sum('height_d') ?: 7.0;
+        $weight = $order->items->sum('weight_d') ?: 0.25;
 
         $params = [
             'order_id'         => $order->id,

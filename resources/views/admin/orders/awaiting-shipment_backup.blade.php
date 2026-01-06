@@ -332,8 +332,8 @@
                 <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="20+">>20lb</button>
             </div>
             <!-- CBIN Filter Button -->
-            <button type="button" class="btn btn-outline-danger cbin-filter-btn" id="cbinFilterBtn" title="Show only CBIN (D) > 172">
-                <i class="bi bi-funnel-fill"></i> CBIN (D) > 172
+            <button type="button" class="btn btn-outline-danger cbin-filter-btn" id="cbinFilterBtn" title="Show only rows with red CBIN (D) values">
+                <i class="bi bi-funnel-fill"></i> Red CBIN (D) <span id="redCbinCount" class="badge bg-danger ms-1">0</span>
             </button>
             <!-- Bulk Dimension Inputs -->
             <div class="bulk-dimension-inputs" id="bulkDimensionInputs">
@@ -439,6 +439,7 @@
                         <th>W (D)</th>
                         <th>H (D)</th>
                         <th>WT (D)</th>
+                        <th>WT S</th>
                         <th>CBIN (D)</th>
                         <th>H</th>
                         <th>W</th>
@@ -502,6 +503,39 @@
     const columnVisibilitySettings = @json($columns);
     let selectedWeightRanges = ['all'];
     let cbinFilterActive = false;
+    
+    // Function to check if CBIN should be red - defined before table initialization
+    function isCbinRed(row) {
+        if (!row) return false;
+        
+        const length_d = parseFloat(row.length_d) || 0;
+        const width_d = parseFloat(row.width_d) || 0;
+        const height_d = parseFloat(row.height_d) || 0;
+        const weight_d = parseFloat(row.weight_d) || 0;
+        const cbin = length_d * width_d * height_d;
+        
+        if (cbin === 0 || isNaN(cbin)) return false;
+        
+        // Determine if CBIN should be red based on WT (D) ranges
+        let isOverLimit = false;
+        
+        if (weight_d <= 5) {
+            isOverLimit = cbin > 172;
+        } else if (weight_d > 5 && weight_d <= 8) {
+            isOverLimit = cbin > 345;
+        } else if (weight_d > 8 && weight_d <= 10) {
+            isOverLimit = cbin > 518;
+        } else if (weight_d > 10 && weight_d <= 15) {
+            isOverLimit = cbin > 691;
+        } else if (weight_d > 15 && weight_d <= 20) {
+            isOverLimit = cbin > 864;
+        } else if (weight_d > 20.01) {
+            isOverLimit = true; // Always red if WT (D) > 20.01
+        }
+        
+        return isOverLimit;
+    }
+    
     $(document).ready(function() {
         const columnVisibilityMap = {};
         columnVisibilitySettings.forEach(col => {
@@ -774,18 +808,55 @@
                 },
                 {
                     data: null,
+                    title: 'WT S',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        const weight_d = parseFloat(row.weight_d) || 0;
+                        const quantity = parseFloat(row.quantity) || 0;
+                        const wt_s = weight_d * quantity;
+                        
+                        if (wt_s === 0 || isNaN(wt_s)) return '—';
+                        
+                        const decimals = (wt_s.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? wt_s.toFixed(decimals - 1) : Math.round(wt_s).toString();
+                        }
+                        return wt_s.toString();
+                    },
+                    visible: columnVisibilityMap['wt_s'] !== undefined ? columnVisibilityMap['wt_s'] : true
+                },
+                {
+                    data: null,
                     title: 'CBIN (D)',
                     className: 'text-end',
                     render: function(data, type, row) {
                         const length_d = parseFloat(row.length_d) || 0;
                         const width_d = parseFloat(row.width_d) || 0;
                         const height_d = parseFloat(row.height_d) || 0;
+                        const weight_d = parseFloat(row.weight_d) || 0;
                         const cbin = length_d * width_d * height_d;
                         
                         if (cbin === 0 || isNaN(cbin)) return '—';
                         
-                        const formattedValue = cbin.toFixed(2);
-                        const isOverLimit = cbin > 172;
+                        const formattedValue = Math.round(cbin);
+                        
+                        // Determine if CBIN should be red based on WT (D) ranges
+                        let isOverLimit = false;
+                        
+                        if (weight_d <= 5) {
+                            isOverLimit = cbin > 172;
+                        } else if (weight_d > 5 && weight_d <= 8) {
+                            isOverLimit = cbin > 345;
+                        } else if (weight_d > 8 && weight_d <= 10) {
+                            isOverLimit = cbin > 518;
+                        } else if (weight_d > 10 && weight_d <= 15) {
+                            isOverLimit = cbin > 691;
+                        } else if (weight_d > 15 && weight_d <= 20) {
+                            isOverLimit = cbin > 864;
+                        } else if (weight_d > 20.01) {
+                            isOverLimit = true; // Always red if WT (D) > 20.01
+                        }
+                        
                         const styleClass = isOverLimit ? 'text-danger fw-bold' : '';
                         
                         return `<span class="${styleClass}">${formattedValue}</span>`;
@@ -901,6 +972,14 @@
             order: [[4, 'asc']],
             pageLength: 50,
             lengthMenu: [50, 25, 50, 100],
+            rowCallback: function(row, data) {
+                // Apply CBIN filter using rowCallback
+                if (cbinFilterActive && !isCbinRed(data)) {
+                    $(row).hide();
+                } else {
+                    $(row).show();
+                }
+            }
         });
         // Set default weight filter
         $('.weight-filter-btn[data-weight-range="all"]').addClass('active');
@@ -933,25 +1012,24 @@
             }
             table.ajax.reload();
         });
-        // CBIN Filter functionality
-        $.fn.dataTable.ext.search.push(
-            function(settings, data, dataIndex) {
-                if (!cbinFilterActive) {
-                    return true; // Show all rows when filter is inactive
-                }
-                // Get the row data
-                const row = table.row(dataIndex).data();
-                if (!row) return true;
-                
-                const length_d = parseFloat(row.length_d) || 0;
-                const width_d = parseFloat(row.width_d) || 0;
-                const height_d = parseFloat(row.height_d) || 0;
-                const cbin = length_d * width_d * height_d;
-                
-                // Only show rows where CBIN > 172
-                return cbin > 172;
+        // Function to count red CBIN rows from currently loaded data
+        function countRedCbin() {
+            let count = 0;
+            try {
+                // Count rows from currently loaded page
+                table.rows({page: 'current'}).every(function() {
+                    const row = this.data();
+                    if (row && isCbinRed(row)) {
+                        count++;
+                    }
+                });
+            } catch (e) {
+                console.error('Error counting red CBIN:', e);
             }
-        );
+            $('#redCbinCount').text(count);
+        }
+        
+        // CBIN filter is now handled in rowCallback above
         // Handle CBIN filter button click
         $('#cbinFilterBtn').on('click', function() {
             cbinFilterActive = !cbinFilterActive;
@@ -962,6 +1040,27 @@
                 $(this).addClass('btn-outline-danger').removeClass('btn-danger');
             }
             table.draw();
+        });
+        
+        // Update red CBIN count when table data changes
+        table.on('draw.dt', function() {
+            setTimeout(function() {
+                countRedCbin();
+            }, 100);
+        });
+        
+        // Initial count update after table is fully initialized
+        table.on('init.dt', function() {
+            setTimeout(function() {
+                countRedCbin();
+            }, 500);
+        });
+        
+        // Also update count after ajax reload
+        table.on('xhr.dt', function() {
+            setTimeout(function() {
+                countRedCbin();
+            }, 100);
         });
         table.on('column-visibility.dt', function(e, settings, column, state) {
             let columnName = settings.aoColumns[column].data;
