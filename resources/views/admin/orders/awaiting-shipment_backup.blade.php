@@ -9,6 +9,78 @@
     font-weight: 600;
 }
 
+/* Hide only the original horizontal header row inside the main table */
+#shipmentTable thead {
+    display: none !important;
+}
+
+/* Ensure table layout is fixed for proper column alignment */
+.dataTables_scrollHead .dataTable,
+.dataTables_scrollBody .dataTable {
+    width: 100% !important;
+}
+
+/* Ensure header and body columns have matching widths */
+.dataTables_scrollHead .dataTable thead th,
+.dataTables_scrollBody .dataTable tbody td {
+    box-sizing: border-box !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+}
+
+/* Ensure scroll wrapper maintains proper width */
+.dataTables_scrollHead,
+.dataTables_scrollBody {
+    overflow-x: auto !important;
+}
+
+/* Show and style the scroll header (created by DataTables scrollX) - vertical and rotated 180 degrees */
+.dataTables_scrollHead {
+    display: block !important;
+    overflow: hidden !important;
+}
+
+.dataTables_scrollHead .dataTable {
+    display: block !important;
+}
+
+.dataTables_scrollHead .dataTable thead {
+    display: table-header-group !important;
+}
+
+.dataTables_scrollHead .dataTable thead tr {
+    display: table-row !important;
+}
+
+.dataTables_scrollHead .dataTable thead th {
+    display: table-cell !important;
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    padding: 10px 5px !important;
+    height: 150px;
+    width: auto !important;
+    min-width: 40px;
+    max-width: none !important;
+    background: linear-gradient(to right, #3f51b5, #5c6bc0) !important;
+    color: #fff !important;
+    font-weight: bold;
+    vertical-align: bottom;
+}
+
+/* Vertical headers for fixed columns - rotated 180 degrees */
+.DTFC_LeftHeadWrapper th,
+.DTFC_RightHeadWrapper th {
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    padding: 10px 5px !important;
+    height: 150px;
+    min-width: 40px;
+}
+
 /* Apply same gradient to ALL fixed left header columns */
 .DTFC_LeftHeadWrapper th {
     background: linear-gradient(to right, #3f51b5, #5c6bc0) !important;
@@ -30,12 +102,6 @@
 /* Apply gradient to ALL fixed right header columns */
 .DTFC_RightHeadWrapper th {
     background: linear-gradient(to right, #009688, #26a69a) !important;
-    color: #fff !important;
-    font-weight: bold;
-}
-/* Normal (scrollable) header columns */
-.dataTables_wrapper .dataTable thead th {
-    background: linear-gradient(to right, #3f51b5, #5c6bc0) !important;
     color: #fff !important;
     font-weight: bold;
 }
@@ -433,7 +499,7 @@
                         <th>Order Age</th>
                         <th>Order Date</th>
                         <th>SKU</th>
-                        <th>Default Rate</th>
+                        <th>Best Rate</th>
                         <th>Recipient</th>
                         <th>L (D)</th>
                         <th>W (D)</th>
@@ -608,25 +674,30 @@
                     title: 'Marketplace',
                     render: function(data, type, row) {
                         const name = data.charAt(0).toUpperCase() + data.slice(1);
+                        let iconClass = '';
                         if (data === 'amazon') {
-                            return '<span><i class="fab fa-amazon me-2 text-primary fs-5"></i>Amazon</span>';
+                            iconClass = 'fab fa-amazon text-primary fs-5';
                         } else if (data === 'reverb') {
-                            return '<span><i class="fas fa-guitar me-2 text-primary fs-5"></i>' + name + '</span>';
+                            iconClass = 'fas fa-guitar text-primary fs-5';
                         } else if (data === 'walmart') {
-                            return '<span><i class="fas fa-store me-2 text-warning fs-5"></i>' + name + '</span>';
+                            iconClass = 'fas fa-store text-warning fs-5';
                         } else if (data === 'tiktok') {
-                            return '<span><i class="fab fa-tiktok me-2" style="color:#ee1d52;"></i>' + name + '</span>';
+                            iconClass = 'fab fa-tiktok';
+                            return '<span title="' + name + '"><i class="' + iconClass + ' fs-5" style="color:#ee1d52;"></i></span>';
                         } else if (data === 'temu') {
-                            return '<span><i class="fas fa-shopping-bag me-2" style="color:#ff6200;"></i>' + name + '</span>';
+                            iconClass = 'fas fa-shopping-bag';
+                            return '<span title="' + name + '"><i class="' + iconClass + ' fs-5" style="color:#ff6200;"></i></span>';
                         } else if (data === 'shopify') {
-                            return '<span><i class="fab fa-shopify me-2 text-success fs-5"></i>' + name + '</span>';
+                            iconClass = 'fab fa-shopify text-success fs-5';
                         } else if (data.startsWith('ebay')) {
-                            return '<span><i class="fab fa-ebay me-2 text-danger fs-5"></i>' + name + '</span>';
+                            iconClass = 'fab fa-ebay text-danger fs-5';
                         } else if (data === 'best buy usa' || data === 'Best Buy USA') {
-                            return '<span><i class="fas fa-bolt me-2" style="color:#0046be;"></i>' + name + '</span>';
+                            iconClass = 'fas fa-bolt';
+                            return '<span title="' + name + '"><i class="' + iconClass + ' fs-5" style="color:#0046be;"></i></span>';
                         } else {
-                            return '<span><i class="fas fa-globe me-2 text-secondary fs-5"></i>' + name + '</span>';
+                            iconClass = 'fas fa-globe text-secondary fs-5';
                         }
+                        return '<span title="' + name + '"><i class="' + iconClass + '"></i></span>';
                     },
                     visible: columnVisibilityMap['marketplace'] !== undefined ? columnVisibilityMap['marketplace'] : true
                 },
@@ -637,15 +708,16 @@
                         let icon = row.marked_as_ship == 1 ? '<i class="bi bi-check-lg"></i>' : '<i class="bi bi-box-seam"></i>';
                         let btnClass = row.marked_as_ship == 1 ? 'btn-success' : 'btn-primary';
                         return `
-                            ${data}
-                            <button class="btn btn-xs mark-as-shipped-btn ms-2"
-                                    data-id="${row.id}" data-order-number="${row.order_number}" data-marked="${row.marked_as_ship}"
-                                    title="${row.marked_as_ship == 1 ? 'Shipped' : 'Mark as Shipped'}">
-                                ${icon}
-                            </button>
+                            <span title="${data}">
+                                <button class="btn btn-xs mark-as-shipped-btn"
+                                        data-id="${row.id}" data-order-number="${row.order_number}" data-marked="${row.marked_as_ship}"
+                                        title="${data} - ${row.marked_as_ship == 1 ? 'Shipped' : 'Mark as Shipped'}">
+                                    ${icon}
+                                </button>
+                            </span>
                         `;
                     },
-                    className: 'text-start',
+                    className: 'text-center',
                     visible: columnVisibilityMap['order_number'] !== undefined ? columnVisibilityMap['order_number'] : true
                 },
                 {
@@ -661,10 +733,10 @@
                         const diffMin = Math.floor(diffSec / 60);
                         const diffHour = Math.floor(diffMin / 60);
                         const diffDay = Math.floor(diffHour / 24);
-                        if (diffSec < 60) return `${diffSec} sec ago`;
-                        if (diffMin < 60) return `${diffMin} min ago`;
-                        if (diffHour < 24) return `${diffHour} hr ago`;
-                        return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
+                        if (diffSec < 60) return `${diffSec} sec`;
+                        if (diffMin < 60) return `${diffMin} min`;
+                        if (diffHour < 24) return `${diffHour} hr`;
+                        return `${diffDay} day${diffDay > 1 ? 's' : ''}`;
                     },
                     visible: columnVisibilityMap['order_date'] !== undefined ? columnVisibilityMap['order_date'] : true
                 },
@@ -675,8 +747,8 @@
                         if (!data) return '';
                         let date = new Date(data);
                         let options = {
-                            year: 'numeric', month: '2-digit', day: '2-digit',
-                            hour: '2-digit', minute: '2-digit', second: '2-digit',
+                            month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit',
                             timeZone: 'America/New_York'
                         };
                         return new Intl.DateTimeFormat('en-GB', options).format(date);
@@ -698,7 +770,7 @@
                 },
                 {
                     data: null,
-                    title: 'Default Rate',
+                    title: 'Best Rate',
                     render: function(data, type, row) {
                         let defaultCarrier = row.default_carrier || '—';
                         let defaultService = row.default_service || '';
@@ -1002,6 +1074,38 @@
                 } else {
                     $(row).show();
                 }
+            },
+            drawCallback: function() {
+                // Sync column widths between header and body
+                setTimeout(function() {
+                    var headerCells = $('.dataTables_scrollHead .dataTable thead th');
+                    var bodyCells = $('.dataTables_scrollBody .dataTable tbody tr:first td');
+                    
+                    if (headerCells.length === bodyCells.length) {
+                        headerCells.each(function(index) {
+                            var bodyCellWidth = $(bodyCells[index]).outerWidth();
+                            $(this).css('width', bodyCellWidth + 'px');
+                            $(this).css('min-width', bodyCellWidth + 'px');
+                            $(this).css('max-width', bodyCellWidth + 'px');
+                        });
+                    }
+                }, 100);
+            },
+            initComplete: function() {
+                // Sync column widths on initialization
+                setTimeout(function() {
+                    var headerCells = $('.dataTables_scrollHead .dataTable thead th');
+                    var bodyCells = $('.dataTables_scrollBody .dataTable tbody tr:first td');
+                    
+                    if (headerCells.length === bodyCells.length) {
+                        headerCells.each(function(index) {
+                            var bodyCellWidth = $(bodyCells[index]).outerWidth();
+                            $(this).css('width', bodyCellWidth + 'px');
+                            $(this).css('min-width', bodyCellWidth + 'px');
+                            $(this).css('max-width', bodyCellWidth + 'px');
+                        });
+                    }
+                }, 200);
             }
         });
         // Set default weight filter
