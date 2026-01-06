@@ -401,6 +401,13 @@
             <button type="button" class="btn btn-outline-danger cbin-filter-btn" id="cbinFilterBtn" title="Show only rows with red CBIN (D) values">
                 <i class="bi bi-funnel-fill"></i> Red CBIN (D) <span id="redCbinCount" class="badge bg-danger ms-1">0</span>
             </button>
+            <!-- Dimension Column Toggle Buttons -->
+            <button type="button" class="btn btn-outline-secondary dimension-toggle-btn" id="toggleDDimensions" data-dimension-set="d" title="Toggle L (D), W (D), H (D), WT (D) columns">
+                <i class="bi bi-eye"></i> Show D Dimensions
+            </button>
+            <button type="button" class="btn btn-outline-secondary dimension-toggle-btn" id="toggleRegularDimensions" data-dimension-set="regular" title="Toggle L, W, H, WT columns">
+                <i class="bi bi-eye"></i> Show Regular Dimensions
+            </button>
             <!-- Bulk Dimension Inputs -->
             <div class="bulk-dimension-inputs" id="bulkDimensionInputs">
                 <input type="number" class="form-control" id="bulkHeight" placeholder="Height" min="0" step="0.01">
@@ -614,6 +621,26 @@
             window.open(url, '_blank');
         });
         const shippingServices = @json($services);
+        
+        // Function to sync column widths between header and body
+        function syncColumnWidths() {
+            setTimeout(function() {
+                var headerCells = $('.dataTables_scrollHead .dataTable thead th');
+                var bodyCells = $('.dataTables_scrollBody .dataTable tbody tr:first td');
+                
+                if (headerCells.length === bodyCells.length) {
+                    headerCells.each(function(index) {
+                        var bodyCellWidth = $(bodyCells[index]).outerWidth();
+                        if (bodyCellWidth > 0) {
+                            $(this).css('width', bodyCellWidth + 'px');
+                            $(this).css('min-width', bodyCellWidth + 'px');
+                            $(this).css('max-width', bodyCellWidth + 'px');
+                        }
+                    });
+                }
+            }, 150);
+        }
+        
         let table = $('#shipmentTable').DataTable({
             processing: true,
             serverSide: true,
@@ -839,7 +866,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['length_d'] !== undefined ? columnVisibilityMap['length_d'] : true
+                    visible: false
                 },
                 {
                     data: 'width_d',
@@ -855,7 +882,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['width_d'] !== undefined ? columnVisibilityMap['width_d'] : true
+                    visible: false
                 },
                 {
                     data: 'height_d',
@@ -871,7 +898,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['height_d'] !== undefined ? columnVisibilityMap['height_d'] : true
+                    visible: false
                 },
                 {
                     data: 'weight_d',
@@ -887,7 +914,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['weight_d'] !== undefined ? columnVisibilityMap['weight_d'] : true
+                    visible: false
                 },
                 {
                     data: null,
@@ -961,7 +988,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['height'] !== undefined ? columnVisibilityMap['height'] : true
+                    visible: false
                 },
                 {
                     data: 'width',
@@ -978,7 +1005,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['width'] !== undefined ? columnVisibilityMap['width'] : true
+                    visible: false
                 },
                 {
                     data: 'length',
@@ -995,7 +1022,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['length'] !== undefined ? columnVisibilityMap['length'] : true
+                    visible: false
                 },
                 {
                     data: 'weight',
@@ -1012,7 +1039,7 @@
                         }
                         return num.toString();
                     },
-                    visible: columnVisibilityMap['weight'] !== undefined ? columnVisibilityMap['weight'] : true
+                    visible: false
                 },
                 {
                     data: 'wt_act',
@@ -1077,34 +1104,12 @@
             },
             drawCallback: function() {
                 // Sync column widths between header and body
-                setTimeout(function() {
-                    var headerCells = $('.dataTables_scrollHead .dataTable thead th');
-                    var bodyCells = $('.dataTables_scrollBody .dataTable tbody tr:first td');
-                    
-                    if (headerCells.length === bodyCells.length) {
-                        headerCells.each(function(index) {
-                            var bodyCellWidth = $(bodyCells[index]).outerWidth();
-                            $(this).css('width', bodyCellWidth + 'px');
-                            $(this).css('min-width', bodyCellWidth + 'px');
-                            $(this).css('max-width', bodyCellWidth + 'px');
-                        });
-                    }
-                }, 100);
+                syncColumnWidths();
             },
             initComplete: function() {
                 // Sync column widths on initialization
                 setTimeout(function() {
-                    var headerCells = $('.dataTables_scrollHead .dataTable thead th');
-                    var bodyCells = $('.dataTables_scrollBody .dataTable tbody tr:first td');
-                    
-                    if (headerCells.length === bodyCells.length) {
-                        headerCells.each(function(index) {
-                            var bodyCellWidth = $(bodyCells[index]).outerWidth();
-                            $(this).css('width', bodyCellWidth + 'px');
-                            $(this).css('min-width', bodyCellWidth + 'px');
-                            $(this).css('max-width', bodyCellWidth + 'px');
-                        });
-                    }
+                    syncColumnWidths();
                 }, 200);
             }
         });
@@ -1167,6 +1172,71 @@
                 $(this).addClass('btn-outline-danger').removeClass('btn-danger');
             }
             table.draw();
+        });
+        
+        // Handle dimension column toggle buttons
+        // Find columns by their data property
+        function getColumnIndices(dataProperties) {
+            const indices = [];
+            table.columns().every(function(index) {
+                const dataSrc = this.dataSrc();
+                if (dataProperties.includes(dataSrc)) {
+                    indices.push(index);
+                }
+            });
+            return indices;
+        }
+        
+        $('#toggleDDimensions').on('click', function() {
+            const $btn = $(this);
+            const dColumnIndices = getColumnIndices(['length_d', 'width_d', 'height_d', 'weight_d']);
+            
+            if (dColumnIndices.length === 0) return;
+            
+            const allVisible = dColumnIndices.every(idx => table.column(idx).visible());
+            
+            dColumnIndices.forEach(idx => {
+                table.column(idx).visible(!allVisible);
+            });
+            
+            // Update button text and icon
+            if (!allVisible) {
+                $btn.html('<i class="bi bi-eye-slash"></i> Hide D Dimensions');
+                $btn.removeClass('btn-outline-secondary').addClass('btn-secondary');
+            } else {
+                $btn.html('<i class="bi bi-eye"></i> Show D Dimensions');
+                $btn.removeClass('btn-secondary').addClass('btn-outline-secondary');
+            }
+            
+            // Sync column widths after toggling
+            table.columns.adjust().draw(false);
+            syncColumnWidths();
+        });
+        
+        $('#toggleRegularDimensions').on('click', function() {
+            const $btn = $(this);
+            const regularColumnIndices = getColumnIndices(['height', 'width', 'length', 'weight']);
+            
+            if (regularColumnIndices.length === 0) return;
+            
+            const allVisible = regularColumnIndices.every(idx => table.column(idx).visible());
+            
+            regularColumnIndices.forEach(idx => {
+                table.column(idx).visible(!allVisible);
+            });
+            
+            // Update button text and icon
+            if (!allVisible) {
+                $btn.html('<i class="bi bi-eye-slash"></i> Hide Regular Dimensions');
+                $btn.removeClass('btn-outline-secondary').addClass('btn-secondary');
+            } else {
+                $btn.html('<i class="bi bi-eye"></i> Show Regular Dimensions');
+                $btn.removeClass('btn-secondary').addClass('btn-outline-secondary');
+            }
+            
+            // Sync column widths after toggling
+            table.columns.adjust().draw(false);
+            syncColumnWidths();
         });
         
         // Update red CBIN count when table data changes
