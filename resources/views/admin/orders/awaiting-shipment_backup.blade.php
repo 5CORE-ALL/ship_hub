@@ -331,6 +331,10 @@
                 <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="6-20">6lb–20lb</button>
                 <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="20+">>20lb</button>
             </div>
+            <!-- CBIN Filter Button -->
+            <button type="button" class="btn btn-outline-danger cbin-filter-btn" id="cbinFilterBtn" title="Show only CBIN (D) > 172">
+                <i class="bi bi-funnel-fill"></i> CBIN (D) > 172
+            </button>
             <!-- Bulk Dimension Inputs -->
             <div class="bulk-dimension-inputs" id="bulkDimensionInputs">
                 <input type="number" class="form-control" id="bulkHeight" placeholder="Height" min="0" step="0.01">
@@ -431,10 +435,16 @@
                         <th>SKU</th>
                         <th>Default Rate</th>
                         <th>Recipient</th>
+                        <th>L (D)</th>
+                        <th>W (D)</th>
+                        <th>H (D)</th>
+                        <th>WT (D)</th>
+                        <th>CBIN (D)</th>
                         <th>H</th>
                         <th>W</th>
                         <th>L</th>
-                        <th>WT</th> 
+                        <th>WT</th>
+                        <th>WT ACT</th>
                         <th>Qty</th>
                         <th>Order Total</th>
                     </tr>
@@ -491,6 +501,7 @@
         });
     const columnVisibilitySettings = @json($columns);
     let selectedWeightRanges = ['all'];
+    let cbinFilterActive = false;
     $(document).ready(function() {
         const columnVisibilityMap = {};
         columnVisibilitySettings.forEach(col => {
@@ -698,9 +709,93 @@
                     visible: columnVisibilityMap['recipient_name'] !== undefined ? columnVisibilityMap['recipient_name'] : true
                 },
                 {
+                    data: 'length_d',
+                    title: 'L (D)',
+                    className: 'text-end editable-cell',
+                    render: function(data) {
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
+                    },
+                    visible: columnVisibilityMap['length_d'] !== undefined ? columnVisibilityMap['length_d'] : true
+                },
+                {
+                    data: 'width_d',
+                    title: 'W (D)',
+                    className: 'text-end editable-cell',
+                    render: function(data) {
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
+                    },
+                    visible: columnVisibilityMap['width_d'] !== undefined ? columnVisibilityMap['width_d'] : true
+                },
+                {
+                    data: 'height_d',
+                    title: 'H (D)',
+                    className: 'text-end editable-cell',
+                    render: function(data) {
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
+                    },
+                    visible: columnVisibilityMap['height_d'] !== undefined ? columnVisibilityMap['height_d'] : true
+                },
+                {
+                    data: 'weight_d',
+                    title: 'WT (D)',
+                    className: 'text-end editable-cell',
+                    render: function(data) {
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
+                    },
+                    visible: columnVisibilityMap['weight_d'] !== undefined ? columnVisibilityMap['weight_d'] : true
+                },
+                {
+                    data: null,
+                    title: 'CBIN (D)',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        const length_d = parseFloat(row.length_d) || 0;
+                        const width_d = parseFloat(row.width_d) || 0;
+                        const height_d = parseFloat(row.height_d) || 0;
+                        const cbin = length_d * width_d * height_d;
+                        
+                        if (cbin === 0 || isNaN(cbin)) return '—';
+                        
+                        const formattedValue = cbin.toFixed(2);
+                        const isOverLimit = cbin > 172;
+                        const styleClass = isOverLimit ? 'text-danger fw-bold' : '';
+                        
+                        return `<span class="${styleClass}">${formattedValue}</span>`;
+                    },
+                    visible: columnVisibilityMap['cbm_in'] !== undefined ? columnVisibilityMap['cbm_in'] : true
+                },
+                {
                     data: 'height',
                     title: 'H',
-                    className: 'text-end editable-cell',
+                    className: 'text-end',
                     render: function(data) {
                         if (data === null || data === undefined || data === '') return '—';
                         const num = parseFloat(data);
@@ -717,7 +812,7 @@
                 {
                     data: 'width',
                     title: 'W',
-                    className: 'text-end editable-cell',
+                    className: 'text-end',
                     render: function(data) {
                         if (data === null || data === undefined || data === '') return '—';
                         const num = parseFloat(data);
@@ -734,7 +829,7 @@
                 {
                     data: 'length',
                     title: 'L',
-                    className: 'text-end editable-cell',
+                    className: 'text-end',
                     render: function(data) {
                         if (data === null || data === undefined || data === '') return '—';
                         const num = parseFloat(data);
@@ -764,6 +859,22 @@
                         return num.toString();
                     },
                     visible: columnVisibilityMap['weight'] !== undefined ? columnVisibilityMap['weight'] : true
+                },
+                {
+                    data: 'wt_act',
+                    title: 'WT ACT',
+                    className: 'text-end',
+                    render: function(data) {
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        const decimals = (data.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                        }
+                        return num.toString();
+                    },
+                    visible: columnVisibilityMap['wt_act'] !== undefined ? columnVisibilityMap['wt_act'] : true
                 },
                 {
                     data: 'quantity',
@@ -821,6 +932,36 @@
                 selectedWeightRanges = activeSpecificRanges;
             }
             table.ajax.reload();
+        });
+        // CBIN Filter functionality
+        $.fn.dataTable.ext.search.push(
+            function(settings, data, dataIndex) {
+                if (!cbinFilterActive) {
+                    return true; // Show all rows when filter is inactive
+                }
+                // Get the row data
+                const row = table.row(dataIndex).data();
+                if (!row) return true;
+                
+                const length_d = parseFloat(row.length_d) || 0;
+                const width_d = parseFloat(row.width_d) || 0;
+                const height_d = parseFloat(row.height_d) || 0;
+                const cbin = length_d * width_d * height_d;
+                
+                // Only show rows where CBIN > 172
+                return cbin > 172;
+            }
+        );
+        // Handle CBIN filter button click
+        $('#cbinFilterBtn').on('click', function() {
+            cbinFilterActive = !cbinFilterActive;
+            $(this).toggleClass('active', cbinFilterActive);
+            if (cbinFilterActive) {
+                $(this).addClass('btn-danger').removeClass('btn-outline-danger');
+            } else {
+                $(this).addClass('btn-outline-danger').removeClass('btn-danger');
+            }
+            table.draw();
         });
         table.on('column-visibility.dt', function(e, settings, column, state) {
             let columnName = settings.aoColumns[column].data;
@@ -1131,11 +1272,22 @@
                 }
             }
             let field = columnDefs[actualColumnIndex].data;
-            if (!['height', 'width', 'length', 'weight'].includes(field)) {
+            // Only allow editing of _d fields and weight, not the original H, W, L columns
+            if (!['height_d', 'width_d', 'length_d', 'weight', 'weight_d'].includes(field)) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Invalid Column',
-                    text: 'This column is not editable.',
+                    text: 'This column is not editable. Please use H (D), W (D), or L (D) columns for editing.',
+                    confirmButtonText: 'OK'
+                });
+                return;
+            }
+            // Double check - explicitly prevent editing of original dimension columns
+            if (['height', 'width', 'length'].includes(field)) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Column Not Editable',
+                    text: 'H, W, and L columns are read-only. Please use H (D), W (D), or L (D) columns for editing.',
                     confirmButtonText: 'OK'
                 });
                 return;

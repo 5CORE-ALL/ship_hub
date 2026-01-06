@@ -579,7 +579,7 @@ public function printLabels(Request $request, ShippingLabelService $labelService
     {
         $request->validate([
             'order_id' => 'required|integer|exists:orders,id',
-            'field' => 'required|in:height,width,length,weight,sku,quantity',
+            'field' => 'required|in:height,width,length,weight,sku,quantity,height_d,width_d,length_d,weight_d',
             'value' => 'nullable|numeric|min:0'
         ]);
 
@@ -587,6 +587,9 @@ public function printLabels(Request $request, ShippingLabelService $labelService
             return DB::transaction(function () use ($request) {
                 $orderItems = OrderItem::where('order_id', $request->order_id)->get();
                 $field = $request->field;
+                
+                // Use the field directly - separate columns exist for _d fields
+                $dbField = $field;
                 // Convert empty string to null
                 $value = $request->value === '' || $request->value === null ? null : (float) $request->value;
                 $itemCount = $orderItems->count();
@@ -603,7 +606,7 @@ public function printLabels(Request $request, ShippingLabelService $labelService
                 
                 // Use update() for more reliable persistence
                 foreach ($orderItems as $orderItem) {
-                    $orderItem->update([$field => $updateValue]);
+                    $orderItem->update([$dbField => $updateValue]);
                 }
                 
                 // Verify the update was saved by refreshing the models
@@ -612,7 +615,7 @@ public function printLabels(Request $request, ShippingLabelService $labelService
                 });
                 
                 // Log the update for debugging
-                $sumValue = $orderItems->sum($field);
+                $sumValue = $orderItems->sum($dbField);
                 Log::info("Updated dimension", [
                     'order_id' => $request->order_id,
                     'field' => $field,
@@ -634,7 +637,7 @@ public function printLabels(Request $request, ShippingLabelService $labelService
                 // This prevents any potential interference with the dimension update
 
                 // Get the sum of the updated field for verification
-                $sumValue = $orderItems->sum($field);
+                $sumValue = $orderItems->sum($dbField);
                 
                 return response()->json([
                     'success' => true,

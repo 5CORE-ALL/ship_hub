@@ -548,6 +548,7 @@ public function getAwaitingShipmentOrders(Request $request)
             $join->on('orders.id', '=', 'order_shipping_rates.order_id')
                  ->where('order_shipping_rates.is_cheapest', 1);
         })
+        ->leftJoin('dimension_data', 'order_items.sku', '=', 'dimension_data.sku')
         ->where('orders.printing_status', 0)
         ->whereNotIn('orders.marketplace', ['walmart-s','ebay-s'])
         ->where(function ($q) {
@@ -653,6 +654,12 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
             SUM(COALESCE(order_items.original_width, order_items.width)) as width,
             SUM(COALESCE(order_items.original_length, order_items.length)) as length,
             SUM(COALESCE(order_items.original_weight, order_items.weight)) as weight,
+            SUM(COALESCE(order_items.length_d, dimension_data.l, order_items.original_length, order_items.length)) as length_d,
+            SUM(COALESCE(order_items.width_d, dimension_data.w, order_items.original_width, order_items.width)) as width_d,
+            SUM(COALESCE(order_items.height_d, dimension_data.h, order_items.original_height, order_items.height)) as height_d,
+            SUM(COALESCE(order_items.weight_d, dimension_data.wt_act)) as weight_d,
+            NULL as cbm_in,
+            MAX(dimension_data.wt_act) as wt_act,
             MAX(order_shipping_rates.rate_id) as default_rate_id,
             MAX(order_shipping_rates.currency) as default_currency,
             MAX(order_shipping_rates.carrier) as default_carrier,
