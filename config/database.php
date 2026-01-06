@@ -93,6 +93,21 @@ return [
             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
+        'invent' => [
+            'driver' => 'mysql',
+            'host' => env('INVENT_DB_HOST', '127.0.0.1'),
+            'port' => env('INVENT_DB_PORT', '3306'),
+            'database' => env('INVENT_DB_DATABASE', 'inventory_5c'),
+            'username' => env('INVENT_DB_USERNAME', 'inventory_5c'),
+            'password' => env('INVENT_DB_PASSWORD', 'vb}^<~@&>]@qMdoe'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+        ],
+
     ],
 
     /*

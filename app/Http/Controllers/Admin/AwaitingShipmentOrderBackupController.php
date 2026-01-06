@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use App\Services\RateService;
 use App\Services\ShipmentService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
 use App\Models\ShippingService;
 use setasign\Fpdi\Fpdi;
 use setasign\Fpdi\PdfReader;
@@ -25,6 +26,7 @@ use App\Repositories\FulfillmentRepository;
 use App\Models\OrderShippingRate;
 use App\Models\UserColumnVisibility;
 use App\Models\DailyOverdueCount;
+use App\Models\ShopifySku;
 use Carbon\Carbon;
 
 
@@ -679,16 +681,185 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
         $query->orderBy('orders.created_at', 'desc');
     }
 
-    $orders = $query
-        ->skip($request->start)
-        ->take($request->length)
-        ->get();
+    $ordersArray = [];
+    
+    try {
+        $orders = $query
+            ->skip($request->start)
+            ->take($request->length)
+            ->get();
+
+        // Get order IDs to fetch actual SKUs from order_items
+        $orderIds = $orders->pluck('id')->filter()->unique()->values()->toArray();
+        
+        Log::info('Fetching INV for orders', [
+            'order_count' => count($orders),
+            'order_ids_count' => count($orderIds),
+            'sample_order_ids' => array_slice($orderIds, 0, 5)
+        ]);
+        
+        // Fetch INV values from shopify_skus table for all SKUs
+        $invData = [];
+        $orderInvMap = []; // Map order_id to INV value
+        
+        if (!empty($orderIds)) {
+            try {
+                // Get all SKUs from order_items for these orders
+                $orderItems = DB::table('order_items')
+                    ->whereIn('order_id', $orderIds)
+                    ->whereNotNull('sku')
+                    ->where('sku', '!=', '')
+                    ->select('order_id', 'sku')
+                    ->get();
+                
+                Log::info('Order items fetched', [
+                    'order_items_count' => $orderItems->count(),
+                    'sample_items' => $orderItems->take(5)->map(function($item) {
+                        return ['order_id' => $item->order_id, 'sku' => $item->sku];
+                    })->toArray()
+                ]);
+                
+                // Collect unique SKUs
+                $skus = $orderItems->pluck('sku')->filter()->unique()->values()->toArray();
+                
+                Log::info('SKUs collected', [
+                    'skus_count' => count($skus),
+                    'sample_skus' => array_slice($skus, 0, 10)
+                ]);
+                
+                if (!empty($skus)) {
+                    // Check if invent database connection is available before querying
+                    try {
+                        // Test the connection first - this will throw an exception if DB doesn't exist
+                        DB::connection('invent')->getPdo();
+                        
+                        // Use DB facade directly to avoid model connection issues
+                        $invData = DB::connection('invent')
+                            ->table('shopify_skus')
+                            ->whereIn('sku', $skus)
+                            ->pluck('inv', 'sku')
+                            ->toArray();
+                        
+                        Log::info('INV data fetched from shopify_skus', [
+                            'skus_queried' => count($skus),
+                            'inv_data_count' => count($invData),
+                            'sample_skus' => array_slice($skus, 0, 5),
+                            'sample_inv' => array_slice($invData, 0, 5, true)
+                        ]);
+                        
+                        // Map INV values to order IDs (use first item's INV for each order)
+                        foreach ($orderItems as $item) {
+                            $orderId = $item->order_id;
+                            $sku = $item->sku;
+                            
+                            // Only set if not already set (first item wins)
+                            if (!isset($orderInvMap[$orderId]) && isset($invData[$sku])) {
+                                $orderInvMap[$orderId] = $invData[$sku];
+                            }
+                        }
+                        
+                        Log::info('Order INV mapping completed', [
+                            'orders_with_inv' => count($orderInvMap),
+                            'sample_mapping' => array_slice($orderInvMap, 0, 10, true)
+                        ]);
+                    } catch (QueryException $dbException) {
+                        // Database connection not available, skip inventory data
+                        Log::warning('Invent database connection not available, skipping inventory data', [
+                            'error' => $dbException->getMessage(),
+                            'order_ids' => $orderIds
+                        ]);
+                        $invData = [];
+                    } catch (\Exception $dbException) {
+                        // Catch any other exceptions
+                        Log::warning('Error accessing invent database, skipping inventory data', [
+                            'error' => $dbException->getMessage(),
+                            'order_ids' => $orderIds
+                        ]);
+                        $invData = [];
+                    }
+                } else {
+                    Log::warning('No SKUs found in order_items', [
+                        'order_ids' => $orderIds
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('Error fetching INV data: ' . $e->getMessage(), [
+                    'trace' => $e->getTraceAsString(),
+                    'order_ids' => $orderIds,
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine()
+                ]);
+                $invData = [];
+                $orderInvMap = [];
+            }
+        }
+
+        // Convert to array format and add INV value to each order
+        $ordersArray = $orders->map(function ($order) use ($orderInvMap) {
+            // Get order ID first
+            $orderId = null;
+            if (is_object($order)) {
+                $orderId = $order->id ?? null;
+            } else {
+                $orderId = $order['id'] ?? null;
+            }
+            
+            // Get INV value from map
+            $invValue = null;
+            if (isset($orderId) && isset($orderInvMap[$orderId])) {
+                $invValue = $orderInvMap[$orderId];
+            }
+            
+            // Convert to array using json_decode/encode to preserve all properties
+            if (is_object($order)) {
+                $orderArray = json_decode(json_encode($order), true);
+                // Ensure inv is set
+                $orderArray['inv'] = $invValue;
+                return $orderArray;
+            } else {
+                // Already an array
+                $order['inv'] = $invValue;
+                return $order;
+            }
+        })->values()->toArray();
+        
+        // Count orders with INV
+        $ordersWithInv = array_filter($ordersArray, function($order) {
+            return isset($order['inv']) && $order['inv'] !== null && $order['inv'] !== '';
+        });
+        
+        Log::info('Final orders with INV', [
+            'orders_count' => count($ordersArray),
+            'orders_with_inv' => count($ordersWithInv),
+            'order_inv_map_count' => count($orderInvMap),
+            'sample_orders' => !empty($ordersArray) ? array_slice(array_map(function($order) {
+                return [
+                    'id' => $order['id'] ?? 'NO_ID', 
+                    'sku' => $order['sku'] ?? 'NO_SKU', 
+                    'inv' => $order['inv'] ?? 'NO_INV'
+                ];
+            }, $ordersArray), 0, 5) : [],
+            'sample_order_ids' => !empty($ordersArray) ? array_slice(array_column($ordersArray, 'id'), 0, 10) : []
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Error in getAwaitingShipmentOrders: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'draw' => intval($request->draw ?? 0),
+            'recordsTotal' => 0,
+            'recordsFiltered' => 0,
+            'data' => [],
+            'error' => 'An error occurred while fetching orders. Please check the logs.'
+        ], 500);
+    }
 
     return response()->json([
         'draw' => intval($request->draw),
         'recordsTotal' => $totalRecords,
         'recordsFiltered' => $totalRecords,
-        'data' => $orders,
+        'data' => $ordersArray,
     ]);
 }
 public function getCarrierNameByServiceCode($serviceCode)
@@ -864,8 +1035,58 @@ public function createPrintLabels(Request $request)
 
         $carrier = strtolower($service->carrier_name);
 
+        $skippedOrders = [];
+        $processedOrders = [];
+
         foreach ($validated['order_ids'] as $orderId) {
             $order = Order::findOrFail($orderId);
+            
+            // Check inventory (INV) - skip orders with INV = 0
+            $invValue = null;
+            try {
+                // Get SKU from order items
+                $orderItem = DB::table('order_items')
+                    ->where('order_id', $orderId)
+                    ->whereNotNull('sku')
+                    ->where('sku', '!=', '')
+                    ->first();
+                
+                if ($orderItem && !empty($orderItem->sku)) {
+                    // Check if invent database connection is available
+                    try {
+                        DB::connection('invent')->getPdo();
+                        $invValue = DB::connection('invent')
+                            ->table('shopify_skus')
+                            ->where('sku', $orderItem->sku)
+                            ->value('inv');
+                    } catch (\Exception $e) {
+                        // Database not available, skip inventory check
+                        Log::warning('Invent database not available for inventory check', [
+                            'order_id' => $orderId
+                        ]);
+                    }
+                }
+                
+                // Skip order if INV = 0
+                if ($invValue !== null && (float)$invValue === 0.0) {
+                    $skippedOrders[] = [
+                        'order_number' => $order->order_number,
+                        'reason' => 'No inventory available (INV = 0)'
+                    ];
+                    Log::warning('Skipping order with INV = 0', [
+                        'order_id' => $orderId,
+                        'order_number' => $order->order_number,
+                        'sku' => $orderItem->sku ?? 'N/A'
+                    ]);
+                    continue;
+                }
+            } catch (\Exception $e) {
+                Log::error('Error checking inventory for order', [
+                    'order_id' => $orderId,
+                    'error' => $e->getMessage()
+                ]);
+                // Continue processing if inventory check fails
+            }
 
             $street1 = substr(trim($order->ship_address1 ?? ''), 0, 35) ?: 'Unknown Street';
             $street2 = substr(trim($order->ship_address2 ?? ''), 0, 35) ?: null;
@@ -956,6 +1177,8 @@ public function createPrintLabels(Request $request)
                     'shipping_service' => $shipmentData['service_type'],
                     'tracking_number'  => $result['tracking_number'] ?? null,
                 ]);
+                
+                $processedOrders[] = $order->order_number;
 
                 // ebay
                 if($order->marketplace=="ebay2")
@@ -997,7 +1220,19 @@ public function createPrintLabels(Request $request)
             $finalUrl = asset('storage/' . str_replace(storage_path('app/public/'), '', $labelFiles[0]));
         }
 
-        return response()->json(['status'=>'success','message'=>'Labels generated successfully','url'=>$finalUrl]);
+        $message = 'Labels generated successfully';
+        if (count($skippedOrders) > 0) {
+            $message .= '. ' . count($skippedOrders) . ' order(s) skipped due to no inventory (INV = 0)';
+        }
+        
+        return response()->json([
+            'status' => 'success',
+            'message' => $message,
+            'url' => $finalUrl,
+            'processed_count' => count($processedOrders),
+            'skipped_count' => count($skippedOrders),
+            'skipped_orders' => $skippedOrders
+        ]);
 
     } catch (\Exception $e) {
         Log::error('Shipment creation failed', ['message'=>$e->getMessage()]);

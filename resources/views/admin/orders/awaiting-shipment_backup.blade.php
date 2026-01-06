@@ -446,6 +446,7 @@
                         <th>L</th>
                         <th>WT</th>
                         <th>WT ACT</th>
+                        <th>INV</th>
                         <th>Qty</th>
                         <th>Order Total</th>
                     </tr>
@@ -577,9 +578,19 @@
                     data: 'id',
                     title: '<input type="checkbox" id="selectAll">',
                     render: function(data, type, row) {
+                        // Check if INV is 0 or null - show red triangle and disable checkbox
+                        const invValue = parseFloat(row.inv) || 0;
+                        const hasNoInventory = invValue === 0;
+                        
                         // return `<input type="checkbox" class="order-checkbox" value="${data}">`;
                         const hasValidWeight = row.weight != null && row.default_price != null && parseFloat(row.weight) > 0;
                         const hasValidRecipient = row.recipient_name && row.recipient_name.trim() !== '';
+                        
+                        // If no inventory, show red triangle and disable
+                        if (hasNoInventory) {
+                            return `<span class="text-danger" title="No inventory available (INV = 0). Order cannot be shipped."><i class="fas fa-exclamation-triangle"></i></span>`;
+                        }
+                        
                         if (hasValidWeight && hasValidRecipient) {
                             return `<input type="checkbox" class="order-checkbox" value="${data}">`;
                         } else if (!hasValidRecipient) {
@@ -948,6 +959,18 @@
                     visible: columnVisibilityMap['wt_act'] !== undefined ? columnVisibilityMap['wt_act'] : true
                 },
                 {
+                    data: 'inv',
+                    title: 'INV',
+                    className: 'text-end',
+                    render: function(data) {
+                        if (data === null || data === undefined || data === '') return '—';
+                        const num = parseFloat(data);
+                        if (isNaN(num)) return data;
+                        return num.toString();
+                    },
+                    visible: columnVisibilityMap['inv'] !== undefined ? columnVisibilityMap['inv'] : true
+                },
+                {
                     data: 'quantity',
                     title: 'Qty',
                     className: 'text-end',
@@ -1078,7 +1101,16 @@
             });
         });
         $('#selectAll').on('change', function() {
-            $('.order-checkbox', table.rows().nodes()).prop('checked', this.checked);
+            // Only check orders that are eligible (not disabled and have inventory)
+            $('.order-checkbox', table.rows().nodes()).each(function() {
+                const $checkbox = $(this);
+                const row = table.row($checkbox.closest('tr')).data();
+                const invValue = parseFloat(row?.inv) || 0;
+                // Only check if order has inventory (INV > 0)
+                if (invValue > 0) {
+                    $checkbox.prop('checked', $('#selectAll').prop('checked'));
+                }
+            });
             updateBulkButtonState();
         });
         $('#shipmentTable').on('change', '.order-checkbox', function() {
@@ -1094,18 +1126,56 @@
             $('#selectedCountDisplay').toggleClass('text-primary', selectedCount > 0).toggleClass('text-muted', selectedCount === 0);
         }
         $('.bulk-buy-shipping-btn').on('click', function() {
-            let selectedOrders = $('.order-checkbox:checked').map(function() {
-                return $(this).val();
-            }).get();
+            // Filter out orders with INV = 0
+            let selectedOrders = [];
+            $('.order-checkbox:checked').each(function() {
+                const $checkbox = $(this);
+                const row = table.row($checkbox.closest('tr')).data();
+                const invValue = parseFloat(row?.inv) || 0;
+                // Only include orders with inventory (INV > 0)
+                if (invValue > 0) {
+                    selectedOrders.push($(this).val());
+                } else {
+                    // Uncheck orders with no inventory
+                    $checkbox.prop('checked', false);
+                }
+            });
+            
             if (selectedOrders.length === 0) {
                 Swal.fire({
                     icon: 'warning',
-                    title: 'Selection Required',
-                    text: 'Please select at least one order to buy bulk shipping.',
+                    title: 'No Eligible Orders',
+                    text: 'No orders with available inventory selected. Orders with INV = 0 cannot be shipped.',
                     confirmButtonText: 'OK'
+                });
+                updateBulkButtonState();
+                return;
+            }
+            
+            // Check if any orders were filtered out
+            const totalChecked = $('.order-checkbox:checked').length;
+            if (totalChecked > selectedOrders.length) {
+                const filteredCount = totalChecked - selectedOrders.length;
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Orders Filtered',
+                    html: `${filteredCount} order(s) with INV = 0 were excluded from bulk shipping.<br>Proceeding with ${selectedOrders.length} eligible order(s).`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Continue',
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (!result.isConfirmed) {
+                        return;
+                    }
+                    proceedWithBulkShipping(selectedOrders);
                 });
                 return;
             }
+            
+            proceedWithBulkShipping(selectedOrders);
+        });
+        
+        function proceedWithBulkShipping(selectedOrders) {
             Swal.fire({
                 icon: 'info',
                 title: 'Buy Bulk Shipping',
@@ -1172,7 +1242,7 @@
                     });
                 }
             });
-        });
+        }
         $('.bulk-mark-ship-btn').on('click', function() {
     let selectedOrders = $('.order-checkbox:checked').map(function() {
         return $(this).val();
