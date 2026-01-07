@@ -171,7 +171,8 @@ class TikTokDiagnoseSync extends Command
             $orders = $response['orders'] ?? [];
             
             $this->info("   ✅ API Connection successful!");
-            $this->info("   📊 Found {$response['total'] ?? count($orders)} orders in API");
+            $totalOrders = $response['total'] ?? count($orders);
+            $this->info("   📊 Found {$totalOrders} orders in API");
             
             $this->newLine();
             return $orders;
