@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use App\Models\CarrierAccount;
 use Illuminate\Support\Facades\Log;
+use App\Services\UspsService;
 class RateService
 {
     protected $carrier;
@@ -34,10 +35,8 @@ class RateService
             'fedex' => $env === 'production'
                 ? 'https://apis.fedex.com'
                 : 'https://apis-sandbox.fedex.com',
-            'usps' => $env === 'production'
-                ? 'https://secure.shippingapis.com'
-                : 'https://secure.shippingapis.com/sandbox',
-            default => throw new \Exception("Unsupported carrier: $carrier"),
+            'usps' => 'https://apis.usps.com', // USPS uses same URL for sandbox/production
+            default => throw new \Exception("Unsupported carrier: $this->carrier"),
         };
     }
 //  protected function getAccessToken()
@@ -56,9 +55,24 @@ class RateService
 // }
 protected function getAccessToken()
 {
-    // Determine the token URL dynamically based on environment
-    $tokenUrl = $this->baseUrl . '/oauth/token';
+    if ($this->carrier === 'usps') {
+        $response = Http::withHeaders([
+            'Content-Type' => 'application/json',
+        ])->post($this->baseUrl . '/oauth2/v3/token', [
+            'grant_type' => 'client_credentials',
+            'client_id' => $this->key,
+            'client_secret' => $this->secret,
+        ]);
 
+        if ($response->failed()) {
+            throw new \Exception('Failed to get USPS token: ' . $response->body());
+        }
+
+        return $response->json()['access_token'];
+    }
+
+    // FedEx token
+    $tokenUrl = $this->baseUrl . '/oauth/token';
     $response = Http::asForm()->post($tokenUrl, [
         'grant_type'    => 'client_credentials',
         'client_id'     => $this->key,
@@ -73,14 +87,19 @@ protected function getAccessToken()
 }
 
     /**
-     * Get rate quotes from FedEx
+     * Get rate quotes from carrier (FedEx or USPS)
      */
     public function getRate(array $params)
     {
-            $token = $this->getAccessToken();
-            $payload = [
+        if ($this->carrier === 'usps') {
+            return $this->getUspsRate($params);
+        }
+
+        // FedEx rate fetching
+        $token = $this->getAccessToken();
+        $payload = [
             "accountNumber" => [
-                "value" => $this->accountNumber // keep your account number here
+                "value" => $this->accountNumber
             ],
             "requestedShipment" => [
                 "shipper" => [
@@ -132,15 +151,42 @@ protected function getAccessToken()
                 ]
             ]
         ];
-        Log::info("UPS Rate Payload", ['payload' => json_encode($payload, JSON_PRETTY_PRINT)]);
+        Log::info("FedEx Rate Payload", ['payload' => json_encode($payload, JSON_PRETTY_PRINT)]);
         $response = Http::withToken($token)
-            ->post('https://apis-sandbox.fedex.com/rate/v1/rates/quotes', $payload);
+            ->post($this->baseUrl . '/rate/v1/rates/quotes', $payload);
        
         if ($response->failed()) {
             throw new \Exception('FedEx Rate API failed: ' . $response->body());
         }
 
         return $response->json();
+    }
+
+    protected function getUspsRate(array $params)
+    {
+        $token = $this->getAccessToken();
+        
+        // Extract ZIP codes
+        $originZip = $params['shipper_postal'] ?? '90001';
+        $destinationZip = $params['recipient_postal'] ?? '10001';
+        
+        // Convert weight to ounces for USPS
+        $weightOz = $params['weight_unit'] === 'LB' 
+            ? ($params['weight'] ?? 1) * 16 
+            : ($params['weight'] ?? 1);
+
+        // Use UspsService for rate fetching
+        $uspsService = new UspsService();
+        $results = $uspsService->getAllServiceRates(
+            $originZip,
+            $destinationZip,
+            $weightOz,
+            $params['length'] ?? 8,
+            $params['width'] ?? 6,
+            $params['height'] ?? 2
+        );
+
+        return $results;
     }
     /**
  * Fetch and return the cheapest rate option for FedEx
@@ -237,7 +283,7 @@ protected function getAccessToken()
         }
 
         if ($cheapest === null) {
-            throw new \Exception('No valid FedEx rates found.');
+            throw new \Exception('No valid rates found.');
         }
 
         return $cheapestDetails;

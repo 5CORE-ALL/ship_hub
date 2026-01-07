@@ -106,8 +106,100 @@ public function getCarrierPackage($serviceCode)
 
     // USPS
     private function uspsRates($data) 
-    { 
-        return response()->json(['carrier' => 'USPS', 'rates' => []]); 
+    {
+        try {
+            $rateService = new \App\Services\RateService('usps');
+            
+            $params = [
+                'shipper_name' => $data['origin']['name'] ?? 'Shipper',
+                'shipper_phone' => $data['origin']['phone'] ?? '1111111111',
+                'shipper_company' => $data['origin']['company'] ?? '',
+                'shipper_street' => $data['origin']['street'] ?? '',
+                'shipper_city' => $data['origin']['city'] ?? '',
+                'shipper_state' => $data['origin']['state'] ?? '',
+                'shipper_postal' => $data['origin']['postal_code'] ?? '',
+                'shipper_country' => $data['origin']['country'] ?? 'US',
+                
+                'recipient_name' => $data['destination']['name'] ?? 'Recipient',
+                'recipient_phone' => $data['destination']['phone'] ?? '1111111111',
+                'recipient_company' => $data['destination']['company'] ?? '',
+                'recipient_street' => $data['destination']['street'] ?? '',
+                'recipient_city' => $data['destination']['city'] ?? '',
+                'recipient_state' => $data['destination']['state'] ?? '',
+                'recipient_postal' => $data['destination']['postal_code'] ?? '',
+                'recipient_country' => $data['destination']['country'] ?? 'US',
+                
+                'weight' => $data['weight'] ?? 1,
+                'weight_unit' => $data['weight_unit'] ?? 'LB',
+                'length' => $data['dimensions']['length'] ?? 8,
+                'width' => $data['dimensions']['width'] ?? 6,
+                'height' => $data['dimensions']['height'] ?? 2,
+                'dimension_unit' => $data['dimensions']['unit'] ?? 'IN',
+            ];
+            
+            $rates = $rateService->getRate($params);
+            
+            return response()->json([
+                'carrier' => 'USPS',
+                'rates' => $rates
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'carrier' => 'USPS',
+                'error' => $e->getMessage(),
+                'rates' => []
+            ], 500);
+        }
     }
-    private function uspsCreateShipment($data) { return response()->json(['carrier' => 'USPS', 'shipment_id' => 'USPS123']); }
+    
+    private function uspsCreateShipment($data) 
+    {
+        try {
+            $shipmentService = new \App\Services\ShipmentService('usps');
+            
+            $params = [
+                'shipper_name' => $data['origin']['name'] ?? 'Shipper',
+                'shipper_phone' => $data['origin']['phone'] ?? '1111111111',
+                'shipper_company' => $data['origin']['company'] ?? '',
+                'shipper_street' => $data['origin']['street'] ?? '',
+                'shipper_city' => $data['origin']['city'] ?? '',
+                'shipper_state' => $data['origin']['state'] ?? '',
+                'shipper_postal' => $data['origin']['postal_code'] ?? '',
+                'shipper_country' => $data['origin']['country'] ?? 'US',
+                
+                'recipient_name' => $data['destination']['name'] ?? 'Recipient',
+                'recipient_phone' => $data['destination']['phone'] ?? '1111111111',
+                'recipient_company' => $data['destination']['company'] ?? '',
+                'recipient_street' => $data['destination']['street'] ?? '',
+                'recipient_city' => $data['destination']['city'] ?? '',
+                'recipient_state' => $data['destination']['state'] ?? '',
+                'recipient_postal' => $data['destination']['postal_code'] ?? '',
+                'recipient_country' => $data['destination']['country'] ?? 'US',
+                
+                'service_type' => $data['service_type'] ?? 'PRIORITY_MAIL',
+                'weight' => $data['weight'] ?? 1,
+                'weight_unit' => $data['weight_unit'] ?? 'LB',
+                'length' => $data['dimensions']['length'] ?? 8,
+                'width' => $data['dimensions']['width'] ?? 6,
+                'height' => $data['dimensions']['height'] ?? 2,
+                'dimension_unit' => $data['dimensions']['unit'] ?? 'IN',
+                'label_type' => $data['label_type'] ?? 'PDF',
+            ];
+            
+            $result = $shipmentService->createShipment($params);
+            
+            return response()->json([
+                'carrier' => 'USPS',
+                'shipment_id' => $result['tracking_number'] ?? null,
+                'tracking_number' => $result['tracking_number'] ?? null,
+                'label_url' => $result['label'] ?? null,
+                'label_type' => $result['label_type'] ?? 'PDF'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'carrier' => 'USPS',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

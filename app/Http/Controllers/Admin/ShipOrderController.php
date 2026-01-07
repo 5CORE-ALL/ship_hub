@@ -342,9 +342,23 @@ public function getShippedOrders(Request $request)
         ]);
 
         try {
+            // Determine carrier from service code
+            $service = ShippingService::where('service_code', $validated['service_code'])
+                ->where('active', 1)
+                ->first();
+            
+            if (!$service) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Invalid service code',
+                ], 422);
+            }
+
+            $carrier = strtolower($service->carrier_name);
+
             foreach ($validated['order_ids'] as $orderId) {
                 $order = Order::findOrFail($orderId);
-                $shipmentService = new ShipmentService('fedex', auth()->id());
+                $shipmentService = new ShipmentService($carrier, auth()->id());
 
                 $shipmentData = [
                     'shipper_name'      => $order->shipper_name ?? 'Default Shipper',
@@ -379,12 +393,12 @@ public function getShippedOrders(Request $request)
                     'pickup_type'       => $request->input('pickup_type', 'DROPOFF_AT_FEDEX_LOCATION'),
                 ];
 
-                DB::transaction(function () use ($order, $shipmentData, $validated, $shipmentService) {
+                DB::transaction(function () use ($order, $shipmentData, $validated, $shipmentService, $carrier) {
                     $result = $shipmentService->createShipment($shipmentData);
 
                     Shipment::create([
                         'order_id'          => $order->id,
-                        'carrier'           => 'fedex',
+                        'carrier'           => $carrier,
                         'service_type'      => $validated['service_code'],
                         'package_weight'    => $shipmentData['weight'],
                         'package_dimensions'=> json_encode([

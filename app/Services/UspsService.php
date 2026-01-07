@@ -42,19 +42,21 @@ class UspsService
     // }
 public function getAccessToken()
 {
-    $response = Http::withHeaders([
-        'Content-Type' => 'application/json',
-    ])->post($this->baseUrl . '/oauth2/v3/token', [
-        'grant_type' => 'client_credentials',
-        'client_id' => $this->clientId,
-        'client_secret' => $this->clientSecret
-    ]);
+    return Cache::remember('usps_access_token', 60 * 8, function () {
+        $response = Http::withHeaders([
+            'Content-Type' => 'application/json',
+        ])->post($this->baseUrl . '/oauth2/v3/token', [
+            'grant_type' => 'client_credentials',
+            'client_id' => $this->clientId,
+            'client_secret' => $this->clientSecret
+        ]);
 
-    if ($response->failed()) {
-        throw new \Exception('USPS OAuth failed: ' . $response->body());
-    }
+        if ($response->failed()) {
+            throw new \Exception('USPS OAuth failed: ' . $response->body());
+        }
 
-    return $response->json()['access_token'];
+        return $response->json()['access_token'];
+    });
 }
     /**
      * Get USPS shipping rates (all available services)
@@ -62,7 +64,6 @@ public function getAccessToken()
     public function getRates(array $from, array $to, array $parcel)
     {
         $token = $this->getAccessToken();
-        dd($token);
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $token,
             'Accept' => 'application/json',
