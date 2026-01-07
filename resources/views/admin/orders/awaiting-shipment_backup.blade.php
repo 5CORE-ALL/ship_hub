@@ -1027,7 +1027,7 @@
                 {
                     data: 'weight',
                     title: 'WT',
-                    className: 'text-end editable-cell',
+                    className: 'text-end',
                     render: function(data) {
                         if (data === null || data === undefined || data === '') return '—';
                         const num = parseFloat(data);
