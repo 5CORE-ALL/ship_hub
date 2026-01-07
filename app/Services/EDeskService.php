@@ -76,27 +76,33 @@ class EDeskService
             ];
 
             foreach ($endpoints as $endpoint) {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $this->bearerToken,
-                    'Accept' => 'application/json',
-                ])->get($this->baseUrl . $endpoint);
+                try {
+                    $response = Http::timeout(10)->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->bearerToken,
+                        'Accept' => 'application/json',
+                    ])->get($this->baseUrl . $endpoint);
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    
-                    // Handle different response structures
-                    if (isset($data['tickets']) && !empty($data['tickets'])) {
-                        return $data['tickets'][0];
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        
+                        // Handle different response structures
+                        if (isset($data['tickets']) && !empty($data['tickets'])) {
+                            return $data['tickets'][0];
+                        }
+                        if (isset($data['data']) && !empty($data['data'])) {
+                            return is_array($data['data']) && isset($data['data'][0]) ? $data['data'][0] : $data['data'];
+                        }
+                        if (isset($data['ticket'])) {
+                            return $data['ticket'];
+                        }
+                        if (isset($data['id'])) {
+                            return $data;
+                        }
                     }
-                    if (isset($data['data']) && !empty($data['data'])) {
-                        return is_array($data['data']) && isset($data['data'][0]) ? $data['data'][0] : $data['data'];
-                    }
-                    if (isset($data['ticket'])) {
-                        return $data['ticket'];
-                    }
-                    if (isset($data['id'])) {
-                        return $data;
-                    }
+                } catch (\Exception $e) {
+                    // Continue to next endpoint on error
+                    Log::debug("eDesk endpoint failed: {$endpoint}", ['error' => $e->getMessage()]);
+                    continue;
                 }
             }
 
@@ -127,14 +133,20 @@ class EDeskService
             ];
 
             foreach ($endpoints as $endpoint) {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $this->bearerToken,
-                    'Accept' => 'application/json',
-                ])->get($this->baseUrl . $endpoint);
+                try {
+                    $response = Http::timeout(10)->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->bearerToken,
+                        'Accept' => 'application/json',
+                    ])->get($this->baseUrl . $endpoint);
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    return $this->extractCustomerDetails($data);
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        return $this->extractCustomerDetails($data);
+                    }
+                } catch (\Exception $e) {
+                    // Continue to next endpoint on error
+                    Log::debug("eDesk endpoint failed: {$endpoint}", ['error' => $e->getMessage()]);
+                    continue;
                 }
             }
 
@@ -161,14 +173,20 @@ class EDeskService
             ];
 
             foreach ($endpoints as $endpoint) {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $this->bearerToken,
-                    'Accept' => 'application/json',
-                ])->get($this->baseUrl . $endpoint);
+                try {
+                    $response = Http::timeout(10)->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->bearerToken,
+                        'Accept' => 'application/json',
+                    ])->get($this->baseUrl . $endpoint);
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    return $data['order'] ?? $data['data'] ?? $data;
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        return $data['order'] ?? $data['data'] ?? $data;
+                    }
+                } catch (\Exception $e) {
+                    // Continue to next endpoint on error
+                    Log::debug("eDesk endpoint failed: {$endpoint}", ['error' => $e->getMessage()]);
+                    continue;
                 }
             }
 
@@ -189,9 +207,25 @@ class EDeskService
     {
         $customer = [];
         
+        // Ensure data is an array
+        if (!is_array($data)) {
+            return $customer;
+        }
+        
         // Try different possible structures for customer data
         $customerData = $data['customer'] ?? $data['contact'] ?? $data['buyer'] ?? $data;
-        $shippingAddress = $data['shipping_address'] ?? $data['address'] ?? $data['delivery_address'] ?? $customerData['address'] ?? [];
+        $shippingAddress = $data['shipping_address'] ?? $data['address'] ?? $data['delivery_address'] ?? [];
+        
+        // Ensure customerData and shippingAddress are arrays
+        if (!is_array($customerData)) {
+            $customerData = [];
+        }
+        if (!is_array($shippingAddress) && isset($customerData['address']) && is_array($customerData['address'])) {
+            $shippingAddress = $customerData['address'];
+        }
+        if (!is_array($shippingAddress)) {
+            $shippingAddress = [];
+        }
 
         // Extract customer name
         $customer['name'] = $customerData['name'] 
