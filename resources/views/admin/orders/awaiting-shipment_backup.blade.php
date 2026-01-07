@@ -974,15 +974,17 @@
                     visible: columnVisibilityMap['cbm_in'] !== undefined ? columnVisibilityMap['cbm_in'] : true
                 },
                 {
-                    data: 'height',
+                    data: 'h',
                     title: 'H',
                     className: 'text-end',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
+                    render: function(data, type, row) {
+                        // Use 'h' from invent DB, fallback to 'height'
+                        const value = data !== null && data !== undefined && data !== '' ? data : (row.height || null);
+                        if (value === null || value === undefined || value === '') return '—';
+                        const num = parseFloat(value);
+                        if (isNaN(num)) return value;
                         // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
-                        const decimals = (data.toString().split('.')[1] || '').length;
+                        const decimals = (value.toString().split('.')[1] || '').length;
                         if (decimals > 0) {
                             return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
                         }
@@ -991,15 +993,17 @@
                     visible: false
                 },
                 {
-                    data: 'width',
+                    data: 'w',
                     title: 'W',
                     className: 'text-end',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
+                    render: function(data, type, row) {
+                        // Use 'w' from invent DB, fallback to 'width'
+                        const value = data !== null && data !== undefined && data !== '' ? data : (row.width || null);
+                        if (value === null || value === undefined || value === '') return '—';
+                        const num = parseFloat(value);
+                        if (isNaN(num)) return value;
                         // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
-                        const decimals = (data.toString().split('.')[1] || '').length;
+                        const decimals = (value.toString().split('.')[1] || '').length;
                         if (decimals > 0) {
                             return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
                         }
@@ -1008,15 +1012,17 @@
                     visible: false
                 },
                 {
-                    data: 'length',
+                    data: 'l',
                     title: 'L',
                     className: 'text-end',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
+                    render: function(data, type, row) {
+                        // Use 'l' from invent DB, fallback to 'length'
+                        const value = data !== null && data !== undefined && data !== '' ? data : (row.length || null);
+                        if (value === null || value === undefined || value === '') return '—';
+                        const num = parseFloat(value);
+                        if (isNaN(num)) return value;
                         // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
-                        const decimals = (data.toString().split('.')[1] || '').length;
+                        const decimals = (value.toString().split('.')[1] || '').length;
                         if (decimals > 0) {
                             return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
                         }
@@ -1025,15 +1031,17 @@
                     visible: false
                 },
                 {
-                    data: 'weight',
+                    data: 'wt',
                     title: 'WT',
                     className: 'text-end',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
+                    render: function(data, type, row) {
+                        // Use 'wt' from invent DB (wt_decl), fallback to 'weight'
+                        const value = data !== null && data !== undefined && data !== '' ? data : (row.weight || null);
+                        if (value === null || value === undefined || value === '') return '—';
+                        const num = parseFloat(value);
+                        if (isNaN(num)) return value;
                         // Reduce one decimal place: if has decimals, show one less; otherwise keep as is
-                        const decimals = (data.toString().split('.')[1] || '').length;
+                        const decimals = (value.toString().split('.')[1] || '').length;
                         if (decimals > 0) {
                             return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
                         }
@@ -1215,7 +1223,7 @@
         
         $('#toggleRegularDimensions').on('click', function() {
             const $btn = $(this);
-            const regularColumnIndices = getColumnIndices(['height', 'width', 'length', 'weight']);
+            const regularColumnIndices = getColumnIndices(['h', 'w', 'l', 'wt']);
             
             if (regularColumnIndices.length === 0) return;
             

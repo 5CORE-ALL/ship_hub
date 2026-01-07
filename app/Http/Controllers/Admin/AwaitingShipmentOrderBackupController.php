@@ -794,8 +794,89 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
             }
         }
 
-        // Convert to array format and add INV value to each order
-        $ordersArray = $orders->map(function ($order) use ($orderInvMap) {
+        // Fetch dim-wt data from invent DB for all SKUs
+        $dimWtDataMap = [];
+        $orderDimWtMap = [];
+        $orderItemsForDimWt = collect();
+        
+        if (!empty($orderIds)) {
+            try {
+                // Get all SKUs from order_items for these orders
+                $orderItemsForDimWt = DB::table('order_items')
+                    ->whereIn('order_id', $orderIds)
+                    ->whereNotNull('sku')
+                    ->where('sku', '!=', '')
+                    ->select('order_id', 'sku')
+                    ->get();
+                
+                // Collect unique SKUs
+                $skusForDimWt = $orderItemsForDimWt->pluck('sku')->filter()->unique()->values()->toArray();
+                
+                if (!empty($skusForDimWt)) {
+                    try {
+                        // Test the invent database connection
+                        DB::connection('invent')->getPdo();
+                        
+                        // Fetch dim-wt data from product_master.Values JSON column
+                        $dimWtProducts = DB::connection('invent')
+                            ->table('product_master')
+                            ->whereIn('sku', $skusForDimWt)
+                            ->where('sku', 'NOT LIKE', 'PARENT %')
+                            ->select('sku', 'Values')
+                            ->get();
+                        
+                        // Process each product to extract dim-wt data
+                        foreach ($dimWtProducts as $product) {
+                            $values = $product->Values;
+                            if (is_string($values)) {
+                                $values = json_decode($values, true);
+                            }
+                            if (!is_array($values)) {
+                                $values = [];
+                            }
+                            
+                            // Map the columns: W ACT -> WT ACT (from wt_act), W DECL -> WT (from wt_decl)
+                            $dimWtDataMap[$product->sku] = [
+                                'wt_act' => isset($values['wt_act']) ? (float)$values['wt_act'] : null,
+                                'wt' => isset($values['wt_decl']) ? (float)$values['wt_decl'] : null,
+                                'l' => isset($values['l']) ? (float)$values['l'] : null,
+                                'w' => isset($values['w']) ? (float)$values['w'] : null,
+                                'h' => isset($values['h']) ? (float)$values['h'] : null,
+                            ];
+                        }
+                        
+                        Log::info('Dim-wt data fetched from invent DB', [
+                            'skus_queried' => count($skusForDimWt),
+                            'dim_wt_data_count' => count($dimWtDataMap),
+                        ]);
+                    } catch (QueryException $dbException) {
+                        Log::warning('Invent database connection not available for dim-wt data', [
+                            'error' => $dbException->getMessage(),
+                        ]);
+                    } catch (\Exception $dbException) {
+                        Log::warning('Error accessing invent database for dim-wt data', [
+                            'error' => $dbException->getMessage(),
+                        ]);
+                    }
+                }
+                
+                // Map dim-wt data to orders by SKU
+                foreach ($orderItemsForDimWt as $item) {
+                    $orderId = $item->order_id;
+                    $sku = $item->sku;
+                    
+                    // Only set if not already set (first item wins)
+                    if (!isset($orderDimWtMap[$orderId]) && isset($dimWtDataMap[$sku])) {
+                        $orderDimWtMap[$orderId] = $dimWtDataMap[$sku];
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('Error fetching dim-wt data: ' . $e->getMessage());
+            }
+        }
+
+        // Convert to array format and add INV value and dim-wt data to each order
+        $ordersArray = $orders->map(function ($order) use ($orderInvMap, $orderDimWtMap) {
             // Get order ID first
             $orderId = null;
             if (is_object($order)) {
@@ -810,15 +891,37 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                 $invValue = $orderInvMap[$orderId];
             }
             
+            // Get dim-wt data from map
+            $dimWtData = null;
+            if (isset($orderId) && isset($orderDimWtMap[$orderId])) {
+                $dimWtData = $orderDimWtMap[$orderId];
+            }
+            
             // Convert to array using json_decode/encode to preserve all properties
             if (is_object($order)) {
                 $orderArray = json_decode(json_encode($order), true);
                 // Ensure inv is set
                 $orderArray['inv'] = $invValue;
+                // Add dim-wt data: WT ACT, WT, L, W, H
+                if ($dimWtData) {
+                    $orderArray['wt_act'] = $dimWtData['wt_act'] ?? $orderArray['wt_act'] ?? null;
+                    $orderArray['wt'] = $dimWtData['wt'] ?? $orderArray['weight'] ?? null;
+                    $orderArray['l'] = $dimWtData['l'] ?? $orderArray['length'] ?? null;
+                    $orderArray['w'] = $dimWtData['w'] ?? $orderArray['width'] ?? null;
+                    $orderArray['h'] = $dimWtData['h'] ?? $orderArray['height'] ?? null;
+                }
                 return $orderArray;
             } else {
                 // Already an array
                 $order['inv'] = $invValue;
+                // Add dim-wt data: WT ACT, WT, L, W, H
+                if ($dimWtData) {
+                    $order['wt_act'] = $dimWtData['wt_act'] ?? $order['wt_act'] ?? null;
+                    $order['wt'] = $dimWtData['wt'] ?? $order['weight'] ?? null;
+                    $order['l'] = $dimWtData['l'] ?? $order['length'] ?? null;
+                    $order['w'] = $dimWtData['w'] ?? $order['width'] ?? null;
+                    $order['h'] = $dimWtData['h'] ?? $order['height'] ?? null;
+                }
                 return $order;
             }
         })->values()->toArray();
