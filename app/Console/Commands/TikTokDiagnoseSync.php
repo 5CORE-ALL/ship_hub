@@ -320,7 +320,7 @@ class TikTokDiagnoseSync extends Command
             ->where(function($query) {
                 $query->whereNull('order_items.sku')
                       ->orWhere('order_items.sku', '=', '')
-                      ->orWhereNull('order_items.item_name')
+                      ->orWhereNull('order_items.product_name')
                       ->orWhere('order_items.quantity_ordered', '<=', 0);
             })
             ->select('orders.id', 'orders.order_number', 'orders.marketplace_order_id', 'order_items.sku', 'order_items.quantity_ordered')
