@@ -106,7 +106,7 @@ public function getCarrierPackage($serviceCode)
 
     // USPS
     private function uspsRates($data) 
-    {
+    { 
         try {
             $rateService = new \App\Services\RateService('usps');
             
@@ -149,7 +149,7 @@ public function getCarrierPackage($serviceCode)
                 'error' => $e->getMessage(),
                 'rates' => []
             ], 500);
-        }
+    }
     }
     
     private function uspsCreateShipment($data) 

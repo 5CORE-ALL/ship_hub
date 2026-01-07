@@ -96,8 +96,8 @@ protected function getAccessToken()
         }
 
         // FedEx rate fetching
-        $token = $this->getAccessToken();
-        $payload = [
+            $token = $this->getAccessToken();
+            $payload = [
             "accountNumber" => [
                 "value" => $this->accountNumber
             ],

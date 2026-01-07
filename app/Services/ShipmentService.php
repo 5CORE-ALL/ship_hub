@@ -160,7 +160,7 @@ class ShipmentService
         }
 
         $res = $response->json();
-        return [
+      return [
             'tracking_number' => $res['output']['transactionShipments'][0]['masterTrackingNumber'] ?? null,
             'label'           => $res['output']['transactionShipments'][0]['pieceResponses'][0]['packageDocuments'][0]['url'] ?? null,
             'label_type'      => $res['output']['transactionShipments'][0]['pieceResponses'][0]['packageDocuments'][0]['docType'] ?? 'PDF',

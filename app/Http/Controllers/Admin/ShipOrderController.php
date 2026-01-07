@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\{Order, OrderItem, OrderShippingRate, SalesChannel, Shipment, ShippingService};
+use App\Models\{Order, OrderItem, OrderShippingRate, SalesChannel, Shipment, ShippingService, DimensionData};
 use App\Services\{OrderRateFetcherService, RateService, ShippoService, ShipStationService, ShipmentCancellationService, ShipmentService, SendleService, UPSService, ShippingLabelService};
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\{DB, Http, Log, Response, Storage, Validator};
@@ -694,6 +694,45 @@ public function printLabels(Request $request, ShippingLabelService $labelService
                 $orderItems->each(function($item) {
                     $item->refresh();
                 });
+                
+                // If updating D dimensions, save to DimensionData per SKU for future reuse
+                if (in_array($field, ['height_d', 'width_d', 'length_d', 'weight_d']) && $value !== null) {
+                    // Get unique SKUs from order items
+                    $skus = $orderItems->pluck('sku')->filter()->unique();
+                    
+                    // Map D dimension fields to DimensionData columns
+                    $dimensionDataFieldMap = [
+                        'height_d' => 'h',
+                        'width_d' => 'w',
+                        'length_d' => 'l',
+                        'weight_d' => 'wt_act'
+                    ];
+                    
+                    $dimDataField = $dimensionDataFieldMap[$field] ?? null;
+                    
+                    if ($dimDataField) {
+                        // Calculate per-item value for DimensionData (not divided by item count)
+                        // DimensionData stores per-SKU dimensions, not per-order totals
+                        $dimDataValue = $updateValue; // Use the per-item value
+                        
+                        foreach ($skus as $sku) {
+                            if (!empty($sku)) {
+                                // Update or create DimensionData record for this SKU
+                                DimensionData::updateOrCreate(
+                                    ['sku' => $sku],
+                                    [$dimDataField => $dimDataValue]
+                                );
+                                
+                                Log::info("Saved D dimension to DimensionData", [
+                                    'sku' => $sku,
+                                    'field' => $field,
+                                    'dim_data_field' => $dimDataField,
+                                    'value' => $dimDataValue
+                                ]);
+                            }
+                        }
+                    }
+                }
                 
                 // Log the update for debugging
                 $sumValue = $orderItems->sum($dbField);

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\DimensionData;
 use App\Models\SalesChannel;
 use App\Models\Shipper;
 use App\Models\Shipment;
@@ -697,6 +699,71 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
             'order_ids_count' => count($orderIds),
             'sample_order_ids' => array_slice($orderIds, 0, 5)
         ]);
+        
+        // Auto-populate D dimensions from DimensionData for order items that are missing them
+        if (!empty($orderIds)) {
+            try {
+                // Get order items that are missing D dimensions
+                $orderItemsNeedingDims = OrderItem::whereIn('order_id', $orderIds)
+                    ->whereNotNull('sku')
+                    ->where('sku', '!=', '')
+                    ->where(function($query) {
+                        $query->whereNull('length_d')
+                            ->orWhereNull('width_d')
+                            ->orWhereNull('height_d')
+                            ->orWhereNull('weight_d');
+                    })
+                    ->get(['id', 'sku', 'length_d', 'width_d', 'height_d', 'weight_d']);
+                
+                if ($orderItemsNeedingDims->isNotEmpty()) {
+                    // Get unique SKUs that need dimensions
+                    $skusNeedingDims = $orderItemsNeedingDims->pluck('sku')->filter()->unique()->values()->toArray();
+                    
+                    // Fetch DimensionData for these SKUs
+                    $dimensionDataMap = DimensionData::whereIn('sku', $skusNeedingDims)
+                        ->get(['sku', 'l', 'w', 'h', 'wt_act'])
+                        ->keyBy('sku');
+                    
+                    // Update order items with D dimensions from DimensionData
+                    $updatedCount = 0;
+                    foreach ($orderItemsNeedingDims as $orderItem) {
+                        $dimData = $dimensionDataMap->get($orderItem->sku);
+                        if ($dimData) {
+                            $updateData = [];
+                            if (is_null($orderItem->length_d) && !is_null($dimData->l)) {
+                                $updateData['length_d'] = $dimData->l;
+                            }
+                            if (is_null($orderItem->width_d) && !is_null($dimData->w)) {
+                                $updateData['width_d'] = $dimData->w;
+                            }
+                            if (is_null($orderItem->height_d) && !is_null($dimData->h)) {
+                                $updateData['height_d'] = $dimData->h;
+                            }
+                            if (is_null($orderItem->weight_d) && !is_null($dimData->wt_act)) {
+                                $updateData['weight_d'] = $dimData->wt_act;
+                            }
+                            
+                            if (!empty($updateData)) {
+                                $orderItem->update($updateData);
+                                $updatedCount++;
+                            }
+                        }
+                    }
+                    
+                    if ($updatedCount > 0) {
+                        Log::info('Auto-populated D dimensions from DimensionData', [
+                            'updated_items_count' => $updatedCount,
+                            'total_items_checked' => $orderItemsNeedingDims->count()
+                        ]);
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Error auto-populating D dimensions from DimensionData', [
+                    'error' => $e->getMessage(),
+                    'order_ids' => $orderIds
+                ]);
+            }
+        }
         
         // Fetch INV values from shopify_skus table for all SKUs
         $invData = [];
