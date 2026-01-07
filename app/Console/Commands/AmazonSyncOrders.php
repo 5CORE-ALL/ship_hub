@@ -8,16 +8,24 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Integration;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Services\EDeskService;
 use Carbon\Carbon;
 
 class AmazonSyncOrders extends Command
 {
     protected $signature = 'amazon:sync-orders';
     protected $description = 'Fetch and sync Amazon orders and items into orders and order_items tables';
+    protected ?EDeskService $edeskService;
 
     public function handle()
     {
         $this->info('🔄 Syncing Amazon orders and items...');
+        
+        // Initialize eDesk service if bearer token is configured
+        $this->edeskService = config('services.edesk.bearer_token') ? new EDeskService() : null;
+        if ($this->edeskService) {
+            $this->info('✅ eDesk integration enabled for customer details');
+        }
 
         // Fetch integration for store_id 1
         $integration = Integration::where('store_id', 1)->first();
@@ -163,6 +171,78 @@ class AmazonSyncOrders extends Command
                     $recipientName = trim($shippingAddress['Name']);
                 } elseif ($buyerName && !empty(trim($buyerName))) {
                     $recipientName = trim($buyerName);
+                }
+
+                // Fetch customer details from eDesk if Amazon data is incomplete
+                $edeskCustomer = null;
+                if ($this->edeskService) {
+                    try {
+                        $edeskCustomer = $this->edeskService->getCustomerDetailsByOrderId($orderId);
+                        if ($edeskCustomer) {
+                            $this->info("  📧 eDesk customer details found for order {$orderId}");
+                            Log::info('eDesk customer details fetched', [
+                                'order_id' => $orderId,
+                                'has_name' => !empty($edeskCustomer['name']),
+                                'has_email' => !empty($edeskCustomer['email']),
+                                'has_address' => !empty($edeskCustomer['address1']),
+                            ]);
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Failed to fetch eDesk customer details', [
+                            'order_id' => $orderId,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                // Use eDesk data to fill in missing Amazon data
+                if ($edeskCustomer) {
+                    // Fill in missing recipient name
+                    if (empty($recipientName) && !empty($edeskCustomer['name'])) {
+                        $recipientName = trim($edeskCustomer['name']);
+                    }
+
+                    // Fill in missing email
+                    if (empty($buyerEmail) && !empty($edeskCustomer['email'])) {
+                        $buyerEmail = $edeskCustomer['email'];
+                    }
+
+                    // Fill in missing address fields
+                    if ($shippingAddress) {
+                        if (empty($shippingAddress['AddressLine1']) && !empty($edeskCustomer['address1'])) {
+                            $shippingAddress['AddressLine1'] = $edeskCustomer['address1'];
+                        }
+                        if (empty($shippingAddress['AddressLine2']) && !empty($edeskCustomer['address2'])) {
+                            $shippingAddress['AddressLine2'] = $edeskCustomer['address2'];
+                        }
+                        if (empty($shippingAddress['City']) && !empty($edeskCustomer['city'])) {
+                            $shippingAddress['City'] = $edeskCustomer['city'];
+                        }
+                        if (empty($shippingAddress['StateOrRegion']) && !empty($edeskCustomer['state'])) {
+                            $shippingAddress['StateOrRegion'] = $edeskCustomer['state'];
+                        }
+                        if (empty($shippingAddress['PostalCode']) && !empty($edeskCustomer['postal_code'])) {
+                            $shippingAddress['PostalCode'] = $edeskCustomer['postal_code'];
+                        }
+                        if (empty($shippingAddress['CountryCode']) && !empty($edeskCustomer['country'])) {
+                            $shippingAddress['CountryCode'] = $edeskCustomer['country'];
+                        }
+                        if (empty($shippingAddress['Phone']) && !empty($edeskCustomer['phone'])) {
+                            $shippingAddress['Phone'] = $edeskCustomer['phone'];
+                        }
+                    } else {
+                        // If Amazon didn't return any address, use eDesk address entirely
+                        $shippingAddress = [
+                            'Name' => $edeskCustomer['name'] ?? null,
+                            'AddressLine1' => $edeskCustomer['address1'] ?? null,
+                            'AddressLine2' => $edeskCustomer['address2'] ?? null,
+                            'City' => $edeskCustomer['city'] ?? null,
+                            'StateOrRegion' => $edeskCustomer['state'] ?? null,
+                            'PostalCode' => $edeskCustomer['postal_code'] ?? null,
+                            'CountryCode' => $edeskCustomer['country'] ?? null,
+                            'Phone' => $edeskCustomer['phone'] ?? null,
+                        ];
+                    }
                 }
 
                 // Build order data array

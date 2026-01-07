@@ -99,5 +99,9 @@ return [
         'app_secret'    => env('ALIEXPRESS_APP_SECRET'),
         'redirect_uri'  => env('ALIEXPRESS_REDIRECT_URI', 'https://ship.5coremanagement.com/aliexpress/callback'),
     ],
+    'edesk' => [
+        'bearer_token' => env('EDESK_BEARER_TOKEN'),
+        'base_url'     => env('EDESK_BASE_URL', 'https://api.edesk.com'),
+    ],
 
 ];
