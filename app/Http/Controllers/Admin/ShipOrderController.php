@@ -341,23 +341,42 @@ public function getShippedOrders(Request $request)
             'height'        => 'required|numeric|min:0',
         ]);
 
-        try {
-            // Determine carrier from service code
-            $service = ShippingService::where('service_code', $validated['service_code'])
-                ->where('active', 1)
-                ->first();
-            
-            if (!$service) {
-                return response()->json([
-                    'status'  => 'error',
-                    'message' => 'Invalid service code',
-                ], 422);
-            }
+        // Determine carrier from service code
+        $service = ShippingService::where('service_code', $validated['service_code'])
+            ->where('active', 1)
+            ->first();
+        
+        if (!$service) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Invalid service code',
+            ], 422);
+        }
 
-            $carrier = strtolower($service->carrier_name);
+        $carrier = strtolower($service->carrier_name);
+        $results = [];
+        $successCount = 0;
+        $failedCount = 0;
 
-            foreach ($validated['order_ids'] as $orderId) {
+        foreach ($validated['order_ids'] as $orderId) {
+            try {
                 $order = Order::findOrFail($orderId);
+                
+                // Check if shipment already exists
+                $existingShipment = Shipment::where('order_id', $orderId)
+                    ->where('label_status', 'active')
+                    ->first();
+                
+                if ($existingShipment) {
+                    $results[] = [
+                        'order_id' => $orderId,
+                        'order_number' => $order->order_number ?? $orderId,
+                        'status' => 'skipped',
+                        'message' => 'Active shipment already exists for this order',
+                    ];
+                    continue;
+                }
+
                 $shipmentService = new ShipmentService($carrier, auth()->id());
 
                 $shipmentData = [
@@ -409,26 +428,74 @@ public function getShippedOrders(Request $request)
                         'tracking_number'   => $result['tracking_number'] ?? null,
                         'label_url'         => $result['label'] ?? null,
                         'shipment_status'   => 'generated',
+                        'label_status'      => 'active',
                         'label_data'        => json_encode($result), 
                         'ship_date'         => now(),
                         'cost'              => $result['cost'] ?? null,
                         'currency'          => $result['currency'] ?? 'USD',
                     ]);
                 });
+
+                $successCount++;
+                $results[] = [
+                    'order_id' => $orderId,
+                    'order_number' => $order->order_number ?? $orderId,
+                    'status' => 'success',
+                    'message' => 'Label generated successfully',
+                ];
+
+            } catch (\Exception $e) {
+                $failedCount++;
+                \Log::error("Shipment creation failed for order {$orderId}", [
+                    'order_id' => $orderId,
+                    'carrier' => $carrier,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                // Update order to mark label status as failed (but don't change order_status)
+                try {
+                    $order = Order::find($orderId);
+                    if ($order) {
+                        $order->update([
+                            'label_status' => 'failed',
+                            'printing_status' => 0,
+                            // Preserve original order_status - don't change it
+                        ]);
+                    }
+                } catch (\Exception $updateException) {
+                    \Log::error("Failed to update order status for order {$orderId}", [
+                        'error' => $updateException->getMessage(),
+                    ]);
+                }
+
+                $results[] = [
+                    'order_id' => $orderId,
+                    'order_number' => $order->order_number ?? $orderId,
+                    'status' => 'error',
+                    'message' => $e->getMessage(),
+                    'error' => 'Shipment creation failed: ' . $e->getMessage(),
+                ];
             }
-
-            return response()->json([
-                'status'  => 'success',
-                'message' => 'Labels generated successfully',
-            ]);
-
-        } catch (\Exception $e) {
-            \Log::error('Shipment creation failed', ['message' => $e->getMessage()]);
-            return response()->json([
-                'status'  => 'error',
-                'message' => $e->getMessage(),
-            ], 500);
         }
+
+        // Return summary response
+        $response = [
+            'status' => $failedCount === 0 ? 'success' : ($successCount > 0 ? 'partial' : 'error'),
+            'message' => $failedCount === 0 
+                ? 'All labels generated successfully' 
+                : "Processed {$successCount} orders successfully, {$failedCount} failed",
+            'summary' => [
+                'total' => count($validated['order_ids']),
+                'success' => $successCount,
+                'failed' => $failedCount,
+            ],
+            'results' => $results,
+        ];
+
+        $statusCode = $failedCount === 0 ? 200 : ($successCount > 0 ? 207 : 500); // 207 = Multi-Status
+
+        return response()->json($response, $statusCode);
 }
 public function cancelShipments(Request $request)
 {

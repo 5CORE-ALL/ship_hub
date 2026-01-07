@@ -164,29 +164,42 @@ protected function getAccessToken()
 
     protected function getUspsRate(array $params)
     {
-        $token = $this->getAccessToken();
-        
-        // Extract ZIP codes
-        $originZip = $params['shipper_postal'] ?? '90001';
-        $destinationZip = $params['recipient_postal'] ?? '10001';
-        
-        // Convert weight to ounces for USPS
-        $weightOz = $params['weight_unit'] === 'LB' 
-            ? ($params['weight'] ?? 1) * 16 
-            : ($params['weight'] ?? 1);
+        try {
+            $token = $this->getAccessToken();
+            
+            // Extract ZIP codes
+            $originZip = $params['shipper_postal'] ?? '90001';
+            $destinationZip = $params['recipient_postal'] ?? '10001';
+            
+            // Convert weight to ounces for USPS
+            $weightOz = $params['weight_unit'] === 'LB' 
+                ? ($params['weight'] ?? 1) * 16 
+                : ($params['weight'] ?? 1);
 
-        // Use UspsService for rate fetching
-        $uspsService = new UspsService();
-        $results = $uspsService->getAllServiceRates(
-            $originZip,
-            $destinationZip,
-            $weightOz,
-            $params['length'] ?? 8,
-            $params['width'] ?? 6,
-            $params['height'] ?? 2
-        );
+            // Use UspsService for rate fetching
+            $uspsService = new UspsService();
+            $results = $uspsService->getAllServiceRates(
+                $originZip,
+                $destinationZip,
+                $weightOz,
+                $params['length'] ?? 8,
+                $params['width'] ?? 6,
+                $params['height'] ?? 2
+            );
 
-        return $results;
+            return $results;
+        } catch (\Exception $e) {
+            Log::error("USPS Rate fetching failed", [
+                'error' => $e->getMessage(),
+                'params' => $params,
+            ]);
+            
+            // Return empty results instead of throwing to allow other carriers to be tried
+            return [
+                'error' => $e->getMessage(),
+                'rates' => [],
+            ];
+        }
     }
     /**
  * Fetch and return the cheapest rate option for FedEx

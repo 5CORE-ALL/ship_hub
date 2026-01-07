@@ -241,15 +241,42 @@ class ShipmentService
         ])->post($endpoint, $payload);
 
         if ($response->failed()) {
-            throw new \Exception("USPS Shipment API failed: " . $response->body());
+            $errorBody = $response->body();
+            $errorJson = $response->json();
+            
+            // Extract meaningful error message
+            $errorMessage = $errorJson['message'] ?? $errorJson['error'] ?? 'USPS API request failed';
+            $errorDetails = $errorJson['errors'] ?? $errorJson['details'] ?? null;
+            
+            Log::error("USPS Shipment API failed", [
+                'status' => $response->status(),
+                'error' => $errorMessage,
+                'details' => $errorDetails,
+                'body' => $errorBody,
+            ]);
+            
+            throw new \Exception("USPS Shipment API failed: " . $errorMessage . ($errorDetails ? ' - ' . json_encode($errorDetails) : ''));
         }
 
         $res = $response->json();
         
-        // Parse USPS response structure
+        // Validate response has required data
+        if (empty($res)) {
+            Log::error("USPS API returned empty response");
+            throw new \Exception("USPS API returned empty response");
+        }
+        
+        // Parse USPS response structure - handle different possible response formats
+        $trackingNumber = $res['trackingNumber'] ?? $res['shipmentId'] ?? $res['tracking_number'] ?? null;
+        $labelUrl = $res['labelUrl'] ?? $res['label'] ?? $res['label_url'] ?? null;
+        
+        if (!$trackingNumber && !$labelUrl) {
+            Log::warning("USPS API response missing tracking number and label", ['response' => $res]);
+        }
+        
         return [
-            'tracking_number' => $res['trackingNumber'] ?? $res['shipmentId'] ?? null,
-            'label' => $res['labelUrl'] ?? $res['label'] ?? null,
+            'tracking_number' => $trackingNumber,
+            'label' => $labelUrl,
             'label_type' => $params['label_type'] ?? 'PDF',
         ];
     }
