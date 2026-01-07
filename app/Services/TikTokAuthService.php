@@ -386,7 +386,8 @@ public function fetchOrders(string $accessToken, string $shopCipher, string $sta
         $this->client->setShopCipher($shopCipher);
 
         // TikTok expects timestamps (int)
-        $startTime = $startTime ? strtotime($startTime) : now()->subDays(4)->timestamp;
+        // Increased from 4 days to 30 days to catch older orders that may have been missed
+        $startTime = $startTime ? strtotime($startTime) : now()->subDays(30)->timestamp;
         $endTime   = $endTime ? strtotime($endTime) : now()->timestamp;
 
         $allOrders = [];

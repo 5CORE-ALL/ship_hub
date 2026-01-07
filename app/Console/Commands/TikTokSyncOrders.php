@@ -288,14 +288,19 @@ class TikTokSyncOrders extends Command
 
                 Log::info('TikTok Orders Fetched', [
                     'store_id' => $store->store_id,
-                    'orders_count' => count($orders ?? [])
+                    'orders_count' => count($orders ?? []),
+                    'time_range_days' => 30
                 ]);
 
                 if (empty($orders)) {
-                    $this->info("⚠️ No TikTok orders found for store {$store->store_name}.");
-                    Log::info("TikTok order sync: no orders found for store_id {$store->store_id}");
+                    $this->info("⚠️ No TikTok orders found for store {$store->store_name} in the last 30 days.");
+                    Log::info("TikTok order sync: no orders found for store_id {$store->store_id}", [
+                        'time_range_days' => 30
+                    ]);
                     continue;
                 }
+
+                $this->info("📦 Found " . count($orders) . " TikTok orders to sync for store {$store->store_name}");
 
                 $storeCount = 0;
                 foreach ($orders as $orderData) {
@@ -303,14 +308,17 @@ class TikTokSyncOrders extends Command
                     $orderId = $orderData['id'] ?? null;
                     if (!$orderId) continue;
 
-                    // Check if order already exists and is shipped
+                    // Check if order already exists
                     $existingOrder = Order::where('marketplace_order_id', $orderId)
                         ->where('marketplace', 'tiktok')
                         ->first();
 
-                    if ($existingOrder && in_array(strtolower($existingOrder->order_status), ['shipped'])) {
-                        $this->info("🚫 Skipping order {$orderId} — already shipped in DB.");
-                        continue; // skip the entire order and its items
+                    // Only skip if order is already shipped AND we're not updating it
+                    // This allows us to still sync order details and items for shipped orders if needed
+                    $isShipped = $existingOrder && in_array(strtolower($existingOrder->order_status), ['shipped', 'delivered']);
+                    
+                    if ($isShipped) {
+                        $this->info("ℹ️ Order {$orderId} already shipped - updating metadata only (skipping item sync).");
                     }
 
                     DB::beginTransaction();
@@ -367,10 +375,12 @@ class TikTokSyncOrders extends Command
                         ]
                     );
 
-                    // Insert / update order items only if the order is not shipped
-                    if (!$existingOrder) {
+                    // Always sync order items for non-shipped orders to ensure they're up to date
+                    // This fixes the issue where existing orders might be missing items
+                    if (!$isShipped) {
+                        $itemsSynced = 0;
                         foreach ($items as $item) {
-                            $qty = 1;
+                            $qty = $item['quantity'] ?? 1; // Use actual quantity from API instead of hardcoded 1
                             $dimensionData = getDimensionsBySku($item['seller_sku'] ?? '', $qty);
                             OrderItem::updateOrCreate(
                                 [
@@ -390,7 +400,27 @@ class TikTokSyncOrders extends Command
                                     'raw_data' => json_encode($item, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
                                 ]
                             );
+                            $itemsSynced++;
                         }
+                        
+                        // Log if we're adding items to an existing order (helps identify missing items issue)
+                        if ($existingOrder && $itemsSynced > 0) {
+                            $existingItemsCount = OrderItem::where('order_id', $orderModel->id)->count();
+                            if ($existingItemsCount == $itemsSynced) {
+                                Log::info('TikTok order items synced (existing order)', [
+                                    'order_id' => $orderId,
+                                    'store_id' => $store->store_id,
+                                    'items_synced' => $itemsSynced
+                                ]);
+                            }
+                        }
+                    } else {
+                        // For shipped orders, log that items are being skipped
+                        Log::info('TikTok order items skipped (order already shipped)', [
+                            'order_id' => $orderId,
+                            'store_id' => $store->store_id,
+                            'items_count' => count($items)
+                        ]);
                     }
 
                     DB::commit();
@@ -402,13 +432,15 @@ class TikTokSyncOrders extends Command
 
                 } catch (Exception $ex) {
                     DB::rollBack();
-                    $this->error("Error syncing TikTok order {$orderId}: " . $ex->getMessage());
+                    $this->error("❌ Error syncing TikTok order {$orderId}: " . $ex->getMessage());
                     Log::error('Error syncing TikTok order', [
                         'order_id' => $orderData['id'] ?? null,
                         'store_id' => $store->store_id,
                         'error' => $ex->getMessage(),
                         'trace' => $ex->getTraceAsString(),
+                        'order_data' => $orderData, // Include order data for debugging
                     ]);
+                    // Continue processing other orders instead of stopping
                 }
                 }
 
