@@ -146,19 +146,37 @@ class ShippingLabelController extends Controller
         $successOrderIds = $result['summary']['success_order_ids'] ?? [];
         $failedOrderIds = $result['summary']['failed_order_ids'] ?? [];
         
+        // Get detailed error messages for failed orders
+        $failedOrderDetails = [];
+        if (isset($result['labels']) && is_array($result['labels'])) {
+            foreach ($result['labels'] as $label) {
+                if (isset($label['success']) && $label['success'] === false) {
+                    $failedOrderDetails[] = [
+                        'order_id' => $label['order_id'] ?? 'unknown',
+                        'message' => $label['message'] ?? ($label['error'] ?? 'Unknown error'),
+                        'error' => $label['error'] ?? null
+                    ];
+                }
+            }
+        }
+        
         // Build response message with details
         $message = 'Bulk shipping processing completed.';
         if (!empty($successOrderIds) && !empty($failedOrderIds)) {
             $message = "Bulk shipping completed with partial success. {$result['summary']['success_count']} succeeded, {$result['summary']['failed_count']} failed.";
         } elseif (!empty($failedOrderIds)) {
-            $message = "Bulk shipping completed but all orders failed. Please check the logs for details.";
+            $errorMessages = array_map(function($detail) {
+                return "Order #{$detail['order_id']}: {$detail['message']}";
+            }, $failedOrderDetails);
+            $message = "Bulk shipping failed for all orders:\n" . implode("\n", $errorMessages);
         }
 
         return response()->json([
             'success' => !empty($successOrderIds), // True if at least one succeeded
             'message' => $message,
             'labels' => $result,
-            'summary' => $result['summary'] ?? []
+            'summary' => $result['summary'] ?? [],
+            'failed_details' => $failedOrderDetails // Include detailed error messages
         ]);
     } catch (\Exception $e) {
         Log::error('Bulk shipping error: ' . $e->getMessage(), [

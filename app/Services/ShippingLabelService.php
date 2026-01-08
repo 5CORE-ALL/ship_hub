@@ -135,61 +135,113 @@ class ShippingLabelService
                 $rateInfo = is_array($rateInfoMap) && isset($rateInfoMap[$orderId]) ? $rateInfoMap[$orderId] : ['rate_type' => 'D'];
                 $rateType = $rateInfo['rate_type'] ?? 'D';
                 
+                Log::info("Processing order {$orderId} with rate type: {$rateType}", [
+                    'order_id' => $orderId,
+                    'rate_type' => $rateType,
+                    'rate_info' => $rateInfo
+                ]);
+                
                 $selectedRate = null;
                 $rateId = null;
                 $source = null;
                 $carrier = null;
 
                 // For rate type O, use the rate_info passed from frontend
-                if ($rateType === 'O' && isset($rateInfo['rate_info']) && $rateInfo['rate_info']) {
-                    Log::info("Using Best Rate (O) for order {$orderId}", [
-                        'order_id' => $orderId,
-                        'rate_type' => $rateType,
-                        'rate_info' => $rateInfo['rate_info']
-                    ]);
-                    
-                    // Try to find the rate by rate_id first (if provided)
-                    if (!empty($rateInfo['rate_id'])) {
-                        $selectedRate = OrderShippingRate::where('order_id', $orderId)
-                            ->where('rate_id', $rateInfo['rate_id'])
-                            ->first();
-                    }
-                    
-                    // If not found by rate_id, try to find by carrier and service
-                    if (!$selectedRate && !empty($rateInfo['rate_info']['carrier']) && !empty($rateInfo['rate_info']['service'])) {
-                        $selectedRate = OrderShippingRate::where('order_id', $orderId)
-                            ->where('carrier', $rateInfo['rate_info']['carrier'])
-                            ->where('service', $rateInfo['rate_info']['service'])
-                            ->first();
-                    }
-                    
-                    if ($selectedRate) {
-                        $rateId = $selectedRate->rate_id;
-                        $source = $selectedRate->source;
-                        $carrier = $selectedRate->carrier;
-                        Log::info("Found Best Rate (O) for order {$orderId}", [
-                            'rate_id' => $rateId,
-                            'carrier' => $carrier,
-                            'service' => $selectedRate->service,
-                            'price' => $selectedRate->price
-                        ]);
-                    } else {
-                        Log::warning("Best Rate (O) not found in database for order {$orderId}, falling back to cheapest rate", [
+                if ($rateType === 'O') {
+                    if (isset($rateInfo['rate_info']) && $rateInfo['rate_info']) {
+                        Log::info("Using Best Rate (O) for order {$orderId}", [
+                            'order_id' => $orderId,
+                            'rate_type' => $rateType,
                             'rate_info' => $rateInfo['rate_info']
                         ]);
-                        // Fallback to cheapest rate if Best Rate (O) not found
+                        
+                        // Try to find the rate by rate_id first (if provided)
+                        if (!empty($rateInfo['rate_id'])) {
+                            $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                                ->where('rate_id', $rateInfo['rate_id'])
+                                ->first();
+                            
+                            if ($selectedRate) {
+                                Log::info("Found Best Rate (O) by rate_id for order {$orderId}", [
+                                    'rate_id' => $rateInfo['rate_id']
+                                ]);
+                            } else {
+                                Log::warning("Best Rate (O) not found by rate_id for order {$orderId}", [
+                                    'rate_id' => $rateInfo['rate_id']
+                                ]);
+                            }
+                        }
+                        
+                        // If not found by rate_id, try to find by carrier and service
+                        if (!$selectedRate && !empty($rateInfo['rate_info']['carrier']) && !empty($rateInfo['rate_info']['service'])) {
+                            $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                                ->where('carrier', $rateInfo['rate_info']['carrier'])
+                                ->where('service', $rateInfo['rate_info']['service'])
+                                ->first();
+                            
+                            if ($selectedRate) {
+                                Log::info("Found Best Rate (O) by carrier/service for order {$orderId}", [
+                                    'carrier' => $rateInfo['rate_info']['carrier'],
+                                    'service' => $rateInfo['rate_info']['service']
+                                ]);
+                            } else {
+                                Log::warning("Best Rate (O) not found by carrier/service for order {$orderId}", [
+                                    'carrier' => $rateInfo['rate_info']['carrier'],
+                                    'service' => $rateInfo['rate_info']['service']
+                                ]);
+                            }
+                        }
+                        
+                        if ($selectedRate) {
+                            $rateId = $selectedRate->rate_id;
+                            $source = $selectedRate->source;
+                            $carrier = $selectedRate->carrier;
+                            Log::info("Successfully found Best Rate (O) for order {$orderId}", [
+                                'rate_id' => $rateId,
+                                'carrier' => $carrier,
+                                'service' => $selectedRate->service,
+                                'price' => $selectedRate->price
+                            ]);
+                        } else {
+                            Log::warning("Best Rate (O) not found in database for order {$orderId}, falling back to cheapest rate", [
+                                'rate_info' => $rateInfo['rate_info'],
+                                'available_rates_count' => OrderShippingRate::where('order_id', $orderId)->count()
+                            ]);
+                            // Fallback to cheapest rate if Best Rate (O) not found
+                            $selectedRate = $order->cheapestRate;
+                        }
+                    } else {
+                        Log::warning("Best Rate (O) requested but rate_info is missing for order {$orderId}, falling back to cheapest rate", [
+                            'rate_info' => $rateInfo['rate_info'] ?? null
+                        ]);
+                        // Fallback to cheapest rate if rate_info is missing
                         $selectedRate = $order->cheapestRate;
                     }
                 } else {
                     // Default to cheapest rate for rate type D
+                    Log::info("Using Best Rate (D) - cheapest rate for order {$orderId}");
                     $selectedRate = $order->cheapestRate;
                 }
 
                 if (!$selectedRate) {
+                    // Check if there are any rates at all for this order
+                    $availableRatesCount = OrderShippingRate::where('order_id', $orderId)->count();
+                    $errorMessage = $rateType === 'O' 
+                        ? "Best Rate (O) not found for this order. Available rates: {$availableRatesCount}" 
+                        : "No cheapest shipping rate found. Available rates: {$availableRatesCount}";
+                    
+                    Log::error("No rate found for order {$orderId}", [
+                        'rate_type' => $rateType,
+                        'available_rates_count' => $availableRatesCount,
+                        'order_id' => $orderId
+                    ]);
+                    
                     $labels[] = [
                         "order_id" => $orderId,
                         "success" => false,
-                        "message" => $rateType === 'O' ? "Best Rate (O) not found for this order" : "No cheapest shipping rate found",
+                        "message" => $errorMessage,
+                        "provider" => "unknown",
+                        "source" => "unknown"
                     ];
                     $failedCount++;
                     continue;
