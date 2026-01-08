@@ -58,7 +58,11 @@ class FetchDefaultRatesForOrders extends Command
                 $shipper = Shipper::first();
 
                 // Get dimensions from order_items relationship (sum for multiple items)
-                // Using D columns: length_d, width_d, height_d, weight_d
+                // IMPORTANT: For Best Rate (D), we MUST use D dimensions and WT (D):
+                // - length_d (L (D))
+                // - width_d (W (D))
+                // - height_d (H (D))
+                // - weight_d (WT (D))
                 $order->load('items');
                 $length = $order->items->sum('length_d') ?: 4.0;
                 $width  = $order->items->sum('width_d') ?: 4.0;

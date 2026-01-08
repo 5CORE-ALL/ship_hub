@@ -71,6 +71,12 @@ class OrderRateFetcherService
 
     /**
      * Process a single order and store shipping rates
+     * 
+     * IMPORTANT: For Best Rate (D), this method uses D dimensions and WT (D):
+     * - length_d (L (D))
+     * - width_d (W (D))
+     * - height_d (H (D))
+     * - weight_d (WT (D))
      */
     protected function processOrder(Order $order): array
     {
@@ -78,6 +84,7 @@ class OrderRateFetcherService
 
         // Get dimensions from order_items relationship (sum for multiple items)
         // This ensures we get the latest updated values, not from join
+        // For Best Rate (D), we MUST use D dimensions: length_d, width_d, height_d, and weight_d (WT (D))
         $order->load('items');
         $length = $order->items->sum('length_d') ?: 4.0;
         $width  = $order->items->sum('width_d') ?: 4.0;
