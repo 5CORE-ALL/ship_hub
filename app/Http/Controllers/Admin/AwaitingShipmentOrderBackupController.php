@@ -1592,8 +1592,13 @@ public function fetchRateO(Request $request)
             ], 404);
         }
         
-        // Get the cheapest rate
-        $cheapestRate = $rateResult['rates'][0] ?? null;
+        // Get the cheapest rate (lowest price) - explicitly sort to ensure lowest is first
+        $rates = $rateResult['rates'] ?? [];
+        usort($rates, function($a, $b) {
+            return ($a['price'] ?? 0) <=> ($b['price'] ?? 0);
+        });
+        
+        $cheapestRate = $rates[0] ?? null;
         
         if (!$cheapestRate) {
             return response()->json([
@@ -1700,8 +1705,13 @@ public function fetchRateD(Request $request)
             ], 404);
         }
         
-        // Get the cheapest rate
-        $cheapestRate = $rateResult['rates'][0] ?? null;
+        // Get the cheapest rate (lowest price) - explicitly sort to ensure lowest is first
+        $rates = $rateResult['rates'] ?? [];
+        usort($rates, function($a, $b) {
+            return ($a['price'] ?? 0) <=> ($b['price'] ?? 0);
+        });
+        
+        $cheapestRate = $rates[0] ?? null;
         
         if (!$cheapestRate) {
             return response()->json([

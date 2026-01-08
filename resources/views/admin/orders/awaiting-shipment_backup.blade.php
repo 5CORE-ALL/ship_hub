@@ -921,11 +921,23 @@
                         
                         // Check if we have cached rate for this order
                         const cachedRate = row.best_rate_o || null;
+                        // Also check for default/cheapest rate from database
+                        const defaultCarrier = row.default_carrier || '—';
+                        const defaultService = row.default_service || '';
+                        const defaultPrice = row.default_price != null ? `$${parseFloat(row.default_price).toFixed(2)}` : '—';
+                        const defaultSource = row.default_source || '—';
                         
                         let displayHtml = '';
                         if (cachedRate && cachedRate.carrier) {
                             displayHtml = `
                                 <span>${cachedRate.carrier}${cachedRate.service ? ' - ' + cachedRate.service : ''} $${parseFloat(cachedRate.price || 0).toFixed(2)}</span>
+                            `;
+                        } else if (defaultCarrier !== '—') {
+                            // Show default/cheapest rate from database if no cached rate
+                            displayHtml = `
+                                <span>${defaultCarrier}${defaultService ? ' - ' + defaultService : ''} ${defaultPrice}
+                                    ${defaultSource !== '—' ? `<small class="text-muted">(${defaultSource})</small>` : ''}
+                                </span>
                             `;
                         } else {
                             displayHtml = '<span class="text-muted">—</span>';
