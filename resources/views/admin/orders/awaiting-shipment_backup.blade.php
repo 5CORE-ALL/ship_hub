@@ -1572,6 +1572,30 @@
                         success: function(response) {
                             $('#loader').hide();
                             $('body').removeClass('loader-active');
+                            
+                            // Console debug output
+                            console.group('🔍 Bulk Buy Shipping Debug Info');
+                            console.log('Response:', response);
+                            if (response.labels && response.labels.debug) {
+                                console.log('Debug Info:', response.labels.debug);
+                                Object.keys(response.labels.debug).forEach(function(orderId) {
+                                    console.group(`Order #${orderId}`);
+                                    const debug = response.labels.debug[orderId];
+                                    Object.keys(debug).forEach(function(step) {
+                                        console.log(`${step}:`, debug[step]);
+                                    });
+                                    console.groupEnd();
+                                });
+                            }
+                            if (response.failed_details && response.failed_details.length > 0) {
+                                console.group('❌ Failed Orders Details');
+                                response.failed_details.forEach(function(detail) {
+                                    console.error(`Order #${detail.order_id}:`, detail.message, detail);
+                                });
+                                console.groupEnd();
+                            }
+                            console.groupEnd();
+                            
                             if (response.success) {
                                 let downloadLink = '';
                                 let summaryHtml = '';

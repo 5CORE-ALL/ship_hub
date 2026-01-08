@@ -55,11 +55,26 @@ class ShippingLabelService
         $labels = [];
         $successCount = 0;
         $failedCount = 0;
+        $debugInfo = []; // Store debug info for console output
 
         foreach ($orderIds as $orderId) {
             try {
                 // CRITICAL: Check if order is locked by another process
-                $order = Order::with(["items", "cheapestRate"])->find($orderId);
+                // Load order with relationships - use fresh() to ensure we get latest data
+                $order = Order::with(["items", "cheapestRate", "shippingRates"])->find($orderId);
+                
+                // Log order state for debugging (also add to debug array for console)
+                $orderDebugInfo = [
+                    'order_id' => $orderId,
+                    'order_exists' => $order ? 'yes' : 'no',
+                    'has_items' => $order && $order->items ? $order->items->count() : 0,
+                    'has_cheapest_rate' => $order && $order->cheapestRate ? 'yes' : 'no',
+                    'shipping_rate_fetched' => $order ? ($order->shipping_rate_fetched ?? 'unknown') : 'N/A',
+                    'rates_count' => $order ? OrderShippingRate::where('order_id', $orderId)->count() : 0
+                ];
+                
+                Log::info("Processing order {$orderId}", $orderDebugInfo);
+                $debugInfo[$orderId] = ['step' => 'order_loaded', 'data' => $orderDebugInfo];
 
                 if (!$order) {
                     Log::warning("Order not found during bulk shipping", ['order_id' => $orderId]);
@@ -135,11 +150,17 @@ class ShippingLabelService
                 $rateInfo = is_array($rateInfoMap) && isset($rateInfoMap[$orderId]) ? $rateInfoMap[$orderId] : ['rate_type' => 'D'];
                 $rateType = $rateInfo['rate_type'] ?? 'D';
                 
-                Log::info("Processing order {$orderId} with rate type: {$rateType}", [
+                $rateDebugInfo = [
                     'order_id' => $orderId,
                     'rate_type' => $rateType,
-                    'rate_info' => $rateInfo
-                ]);
+                    'rate_info_received' => $rateInfo
+                ];
+                
+                Log::info("Processing order {$orderId} with rate type: {$rateType}", $rateDebugInfo);
+                if (!isset($debugInfo[$orderId])) {
+                    $debugInfo[$orderId] = [];
+                }
+                $debugInfo[$orderId]['rate_selection'] = $rateDebugInfo;
                 
                 $selectedRate = null;
                 $rateId = null;
@@ -209,6 +230,17 @@ class ShippingLabelService
                             ]);
                             // Fallback to cheapest rate if Best Rate (O) not found
                             $selectedRate = $order->cheapestRate;
+                            
+                            // If cheapestRate relationship is null, try manual lookup
+                            if (!$selectedRate) {
+                                Log::warning("cheapestRate relationship null for Best Rate (O) fallback, trying manual lookup");
+                                $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                                    ->where('service', '!=', 'USPS Media Mail')
+                                    ->where('service', '!=', 'Saver Drop Off')
+                                    ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+                                    ->orderBy('price', 'asc')
+                                    ->first();
+                            }
                         }
                     } else {
                         Log::warning("Best Rate (O) requested but rate_info is missing for order {$orderId}, falling back to cheapest rate", [
@@ -216,11 +248,41 @@ class ShippingLabelService
                         ]);
                         // Fallback to cheapest rate if rate_info is missing
                         $selectedRate = $order->cheapestRate;
+                        
+                        // If cheapestRate relationship is null, try manual lookup
+                        if (!$selectedRate) {
+                            Log::warning("cheapestRate relationship null when rate_info missing, trying manual lookup");
+                            $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                                ->where('service', '!=', 'USPS Media Mail')
+                                ->where('service', '!=', 'Saver Drop Off')
+                                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+                                ->orderBy('price', 'asc')
+                                ->first();
+                        }
                     }
                 } else {
                     // Default to cheapest rate for rate type D
                     Log::info("Using Best Rate (D) - cheapest rate for order {$orderId}");
                     $selectedRate = $order->cheapestRate;
+                    
+                    // Fallback: If cheapestRate relationship returns null, find cheapest manually
+                    if (!$selectedRate) {
+                        Log::warning("cheapestRate relationship returned null for order {$orderId}, trying manual lookup");
+                        $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                            ->where('service', '!=', 'USPS Media Mail')
+                            ->where('service', '!=', 'Saver Drop Off')
+                            ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+                            ->orderBy('price', 'asc')
+                            ->first();
+                        
+                        if ($selectedRate) {
+                            Log::info("Found cheapest rate manually for order {$orderId}", [
+                                'rate_id' => $selectedRate->rate_id,
+                                'carrier' => $selectedRate->carrier,
+                                'price' => $selectedRate->price
+                            ]);
+                        }
+                    }
                 }
 
                 if (!$selectedRate) {
@@ -245,13 +307,26 @@ class ShippingLabelService
                         'rate_info_received' => $rateInfo
                     ]);
                     
+                    $errorDebugInfo = [
+                        'rate_type' => $rateType,
+                        'available_rates_count' => $availableRatesCount,
+                        'available_rates' => $availableRates,
+                        'rate_info_received' => $rateInfo
+                    ];
+                    
+                    if (!isset($debugInfo[$orderId])) {
+                        $debugInfo[$orderId] = [];
+                    }
+                    $debugInfo[$orderId]['rate_not_found'] = $errorDebugInfo;
+                    
                     $labels[] = [
                         "order_id" => $orderId,
                         "success" => false,
                         "message" => $errorMessage,
                         "provider" => "unknown",
                         "source" => "unknown",
-                        "available_rates_count" => $availableRatesCount
+                        "available_rates_count" => $availableRatesCount,
+                        "debug" => $errorDebugInfo
                     ];
                     $failedCount++;
                     continue;
@@ -1276,6 +1351,7 @@ class ShippingLabelService
         return [
             "labels" => $labels,
             "summary" => $summary,
+            "debug" => $debugInfo, // Debug info for console output
         ];
     }
     /**
