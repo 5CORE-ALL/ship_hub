@@ -853,7 +853,7 @@
                                 </button>
                                 <button
                                     class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
-                                    data-order='${JSON.stringify(row).replace(/'/g,"&apos;")}'
+                                    data-order-id="${orderId}"
                                     title="Change Carrier">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
@@ -960,6 +960,12 @@
                                     title="Fetch Best Rate (O)"
                                     ${(length === 0 || width === 0 || height === 0 || wt_act_s === 0) ? 'disabled' : ''}>
                                     <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                <button
+                                    class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
+                                    data-order-id="${orderId}"
+                                    title="Change Carrier">
+                                    <i class="bi bi-pencil-square"></i>
                                 </button>
                             </div>
                         `;
@@ -1270,6 +1276,9 @@
             drawCallback: function() {
                 // Sync column widths between header and body
                 syncColumnWidths();
+                
+                // Automatically fetch rates for orders that don't have them
+                autoFetchMissingRates();
             },
             initComplete: function() {
                 // Sync column widths on initialization
@@ -1278,6 +1287,176 @@
                 }, 200);
             }
         });
+        
+        // Function to automatically fetch missing rates for orders
+        const fetchingRates = new Set(); // Track orders currently being fetched to avoid duplicate requests
+        function autoFetchMissingRates() {
+            try {
+                table.rows({page: 'current'}).every(function() {
+                    const row = this.data();
+                    if (!row || !row.id) return;
+                    
+                    const orderId = row.id;
+                    
+                    // Check if Best Rate (D) needs to be fetched
+                    // Best Rate (D) is available if default_carrier exists and shipping_rate_fetched is true
+                    const hasBestRateD = row.default_carrier && row.default_carrier !== '—' && 
+                                        (row.shipping_rate_fetched === 1 || row.shipping_rate_fetched === true);
+                    const needsBestRateD = !hasBestRateD;
+                    
+                    // Check if Best Rate (O) needs to be fetched
+                    // Best Rate (O) is available if best_rate_o exists with carrier
+                    const hasBestRateO = row.best_rate_o && row.best_rate_o.carrier;
+                    const needsBestRateO = !hasBestRateO;
+                    
+                    // Get D dimensions for Best Rate (D)
+                    const lengthD = parseFloat(row.length_d) || 0;
+                    const widthD = parseFloat(row.width_d) || 0;
+                    const heightD = parseFloat(row.height_d) || 0;
+                    const weightD = parseFloat(row.weight_d) || 0;
+                    
+                    // Get regular dimensions for Best Rate (O)
+                    const length = parseFloat(row.length) || 0;
+                    const width = parseFloat(row.width) || 0;
+                    const height = parseFloat(row.height) || 0;
+                    const wt_act = parseFloat(row.wt_act) || 0;
+                    const quantity = parseFloat(row.quantity) || 0;
+                    const wt_act_s = wt_act * quantity;
+                    
+                    // Fetch Best Rate (D) if missing and dimensions are available
+                    if (needsBestRateD && lengthD > 0 && widthD > 0 && heightD > 0 && weightD > 0) {
+                        const fetchKey = `d_${orderId}`;
+                        if (!fetchingRates.has(fetchKey)) {
+                            fetchingRates.add(fetchKey);
+                            fetchBestRateD(orderId, lengthD, widthD, heightD, weightD, row);
+                        }
+                    }
+                    
+                    // Fetch Best Rate (O) if missing and dimensions are available
+                    if (needsBestRateO && length > 0 && width > 0 && height > 0 && wt_act_s > 0) {
+                        const fetchKey = `o_${orderId}`;
+                        if (!fetchingRates.has(fetchKey)) {
+                            fetchingRates.add(fetchKey);
+                            fetchBestRateO(orderId, length, width, height, wt_act_s, row);
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error('Error auto-fetching missing rates:', e);
+            }
+        }
+        
+        // Function to fetch Best Rate (D) automatically
+        function fetchBestRateD(orderId, lengthD, widthD, heightD, weightD, row) {
+            $.ajax({
+                url: '{{ route("orders.fetch-rate-d") }}',
+                type: 'POST',
+                data: {
+                    order_id: orderId,
+                    length: lengthD,
+                    width: widthD,
+                    height: heightD,
+                    weight: weightD,
+                    ship_to_zip: row.ship_postal_code || '',
+                    ship_to_state: row.ship_state || '',
+                    ship_to_city: row.ship_city || '',
+                    ship_to_country: row.ship_country || 'US',
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    fetchingRates.delete(`d_${orderId}`);
+                    if (response.success && response.rate) {
+                        const rate = response.rate;
+                        // Update the row data
+                        const tableRow = table.row(function(idx, data) {
+                            return data.id == orderId;
+                        });
+                        if (tableRow.length) {
+                            const rowData = tableRow.data();
+                            rowData.best_rate_d = rate;
+                            rowData.default_carrier = rate.carrier;
+                            rowData.default_service = rate.service;
+                            rowData.default_price = rate.price;
+                            rowData.default_source = rate.source;
+                            rowData.shipping_rate_fetched = true;
+                            tableRow.data(rowData);
+                            // Reload the specific row to update the display
+                            tableRow.invalidate().draw(false);
+                        }
+                    }
+                },
+                error: function(xhr) {
+                    fetchingRates.delete(`d_${orderId}`);
+                    console.error('Failed to auto-fetch Best Rate (D) for order', orderId, xhr);
+                }
+            });
+        }
+        
+        // Function to fetch Best Rate (O) automatically
+        function fetchBestRateO(orderId, length, width, height, weight, row) {
+            $.ajax({
+                url: '{{ route("orders.fetch-rate-o") }}',
+                type: 'POST',
+                data: {
+                    order_id: orderId,
+                    length: length,
+                    width: width,
+                    height: height,
+                    weight: weight,
+                    ship_to_zip: row.ship_postal_code || '',
+                    ship_to_state: row.ship_state || '',
+                    ship_to_city: row.ship_city || '',
+                    ship_to_country: row.ship_country || 'US',
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    fetchingRates.delete(`o_${orderId}`);
+                    if (response.success && response.rate) {
+                        const rate = response.rate;
+                        // Update the row data
+                        const tableRow = table.row(function(idx, data) {
+                            return data.id == orderId;
+                        });
+                        if (tableRow.length) {
+                            const rowData = tableRow.data();
+                            rowData.best_rate_o = rate;
+                            tableRow.data(rowData);
+                            // Reload the specific row to update the display
+                            tableRow.invalidate().draw(false);
+                        }
+                    }
+                },
+                error: function(xhr) {
+                    fetchingRates.delete(`o_${orderId}`);
+                    console.error('Failed to auto-fetch Best Rate (O) for order', orderId, xhr);
+                }
+            });
+        }
+        
+        // Auto-refresh table periodically to check for new orders and fetch their rates
+        // Refresh every 30 seconds to check for new orders
+        setInterval(function() {
+            // Store current scroll position
+            const scrollTop = $('.dataTables_scrollBody').scrollTop();
+            const currentPage = table.page.info().page;
+            
+            // Reload the table to get new orders
+            table.ajax.reload(function(json) {
+                // Restore scroll position
+                setTimeout(function() {
+                    $('.dataTables_scrollBody').scrollTop(scrollTop);
+                    if (currentPage !== table.page.info().page) {
+                        table.page(currentPage).draw(false);
+                    }
+                }, 100);
+                
+                // Auto-fetch missing rates after reload
+                setTimeout(function() {
+                    autoFetchMissingRates();
+                }, 500);
+            }, false); // false = don't reset pagination
+        }, 30000); // 30 seconds
+        
         // Set default weight filter
         $('.weight-filter-btn[data-weight-range="all"]').addClass('active');
         // Handle weight filter button clicks for multiple selection
@@ -2392,7 +2571,32 @@
     });
 });
         $(document).on('click', '.edit-carrier-btn', function () {
-    let row = $(this).data('order');
+    // Get order ID directly from data attribute or from table row
+    let orderId = $(this).data('order-id');
+    
+    // If not found, try to get from the table row
+    if (!orderId) {
+        const $row = $(this).closest('tr');
+        if ($row.length) {
+            try {
+                const rowData = table.row($row).data();
+                orderId = rowData?.id;
+            } catch (e) {
+                console.error('Error getting row data:', e);
+            }
+        }
+    }
+    
+    if (!orderId) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Order ID not found. Please try again.',
+            confirmButtonText: 'OK'
+        });
+        return;
+    }
+    
     $('#carrierList').html(`
         <div class="d-flex flex-column align-items-center justify-content-center py-5 text-muted">
             <div class="spinner-border text-primary mb-3" role="status"></div>
@@ -2400,19 +2604,33 @@
         </div>
     `);
     $('#changeCarrierModal').modal('show');
+    
     $.ajax({
         url: '{{ route("orders.get-carriers") }}',
         type: 'POST',
+        timeout: 30000, // 30 second timeout
         data: {
-            order_id: row.id,
+            order_id: orderId,
             _token: '{{ csrf_token() }}'
         },
         success: function (response) {
+            // Handle response with success field
+            if (response.success === false) {
+                $('#carrierList').html(`
+                    <div class="text-center text-danger py-4">
+                        <i class="bi bi-exclamation-triangle fs-3 d-block mb-2"></i>
+                        ${response.message || 'Failed to load carriers'}
+                    </div>
+                `);
+                return;
+            }
+            
             if (!response.rates || response.rates.length === 0) {
                 $('#carrierList').html(`
                     <div class="text-center text-muted py-4">
                         <i class="bi bi-truck fs-3 d-block mb-2"></i>
                         No carriers available for this order
+                        <br><small class="text-muted mt-2">Please fetch rates first using the refresh button.</small>
                     </div>
                 `);
                 return;
@@ -2420,26 +2638,45 @@
             // First, find the absolute cheapest rate from ALL rates (not just top 3 per carrier)
             // This ensures we get the true lowest rate across all carriers and services
             let overallCheapest = null;
-            response.rates.forEach(rate => {
-                if (!overallCheapest || parseFloat(rate.price) < parseFloat(overallCheapest.price)) {
-                    overallCheapest = rate;
-                }
-            });
+            if (response.rates && response.rates.length > 0) {
+                response.rates.forEach(rate => {
+                    if (rate && rate.price !== undefined && rate.price !== null) {
+                        if (!overallCheapest || parseFloat(rate.price) < parseFloat(overallCheapest.price)) {
+                            overallCheapest = rate;
+                        }
+                    }
+                });
+            }
+            
+            // If no overall cheapest found, return error
+            if (!overallCheapest) {
+                $('#carrierList').html(`
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-truck fs-3 d-block mb-2"></i>
+                        No valid rates found for this order
+                        <br><small class="text-muted mt-2">Please fetch rates first using the refresh button.</small>
+                    </div>
+                `);
+                return;
+            }
             
             // Group rates by carrier
             const groupedRates = {};
             response.rates.forEach(rate => {
-                if (!groupedRates[rate.carrier]) {
-                    groupedRates[rate.carrier] = [];
+                if (rate && rate.carrier) {
+                    if (!groupedRates[rate.carrier]) {
+                        groupedRates[rate.carrier] = [];
+                    }
+                    groupedRates[rate.carrier].push(rate);
                 }
-                groupedRates[rate.carrier].push(rate);
             });
+            
             // For each group, sort by price and take top 3
             // But ensure the overall cheapest rate is always included even if it's not in top 3
             const processedGroups = {};
             Object.keys(groupedRates).forEach(carrier => {
                 const sortedGroup = groupedRates[carrier]
-                    .sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                    .sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0));
                 
                 // Take top 3, but ensure overall cheapest is included if it belongs to this carrier
                 let topRates = sortedGroup.slice(0, 3);
@@ -2448,21 +2685,24 @@
                     const isInTop3 = topRates.some(r => r.id === overallCheapest.id);
                     if (!isInTop3) {
                         // Replace the 3rd item with overall cheapest if it's cheaper
-                        if (topRates.length >= 3 && parseFloat(overallCheapest.price) < parseFloat(topRates[2].price)) {
+                        if (topRates.length >= 3 && parseFloat(overallCheapest.price || 0) < parseFloat(topRates[2].price || 0)) {
                             topRates[2] = overallCheapest;
                         } else if (topRates.length < 3) {
                             topRates.push(overallCheapest);
                         }
                         // Re-sort after adding overall cheapest
-                        topRates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                        topRates.sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0));
                     }
                 }
                 
-                processedGroups[carrier] = {
-                    rates: topRates,
-                    cheapestPrice: parseFloat(topRates[0].price)
-                };
+                if (topRates.length > 0 && topRates[0].price !== undefined) {
+                    processedGroups[carrier] = {
+                        rates: topRates,
+                        cheapestPrice: parseFloat(topRates[0].price || 0)
+                    };
+                }
             });
+            
             // Sort groups by cheapest price
             const sortedCarriers = Object.keys(processedGroups)
                 .sort((a, b) => processedGroups[a].cheapestPrice - processedGroups[b].cheapestPrice);
@@ -2483,14 +2723,23 @@
                 `;
                 // List items
                 group.rates.forEach((rate, serviceIndex) => {
+                    if (!rate || !rate.id) return; // Skip invalid rates
+                    
                     const groupCheapest = serviceIndex === 0;
                     // Check if this rate is the overall cheapest (compare by id and price to be safe)
-                    const overallCheapestFlag = (rate.id === overallCheapest.id) || 
-                        (parseFloat(rate.price) === parseFloat(overallCheapest.price) && 
+                    const overallCheapestFlag = overallCheapest && (
+                        (rate.id === overallCheapest.id) || 
+                        (parseFloat(rate.price || 0) === parseFloat(overallCheapest.price || 0) && 
                          rate.carrier === overallCheapest.carrier && 
-                         rate.service === overallCheapest.service);
+                         rate.service === overallCheapest.service)
+                    );
                     // ✅ Default checked: Always select the overall cheapest rate (lowest price)
                     const checked = overallCheapestFlag ? 'checked' : '';
+                    const ratePrice = parseFloat(rate.price || 0);
+                    const rateCarrier = (rate.carrier || 'Unknown').replace(/"/g, '&quot;');
+                    const rateService = (rate.service || 'Unknown').replace(/"/g, '&quot;');
+                    const rateSource = (rate.source || 'Unknown').replace(/"/g, '&quot;');
+                    
                     html += `
                         <label class="list-group-item list-group-item-action carrier-group-item d-flex justify-content-between align-items-center cursor-pointer">
                             <div class="d-flex align-items-start">
@@ -2498,21 +2747,21 @@
                                        type="radio"
                                        name="selectedCarrier"
                                        id="carrier_${carrierIndex}_${serviceIndex}"
-                                       data-order-id="${row.id}"
-                                       data-carrier="${rate.carrier}"
-                                       data-service="${rate.service}"
+                                       data-order-id="${orderId}"
+                                       data-carrier="${rateCarrier}"
+                                       data-service="${rateService}"
                                        data-rate-id="${rate.id}"
-                                       data-price="${rate.price}"
-                                       data-source="${rate.source}"
+                                       data-price="${ratePrice}"
+                                       data-source="${rateSource}"
                                        ${checked}>
                                 <div>
-                                    <div class="fw-bold text-truncate" style="max-width: 200px;">${rate.service}</div>
-                                    <div class="small text-muted">${rate.source}</div>
+                                    <div class="fw-bold text-truncate" style="max-width: 200px;">${rateService}</div>
+                                    <div class="small text-muted">${rateSource}</div>
                                 </div>
                             </div>
                             <div class="text-end">
-                                <span class="badge bg-primary fs-6 px-3 py-2">$${parseFloat(rate.price).toFixed(2)}</span>
-                                ${groupCheapest ? `<div class="small text-success mt-1"><i class="bi bi-check-circle"></i> Cheapest for ${carrier}</div>` : ''}
+                                <span class="badge bg-primary fs-6 px-3 py-2">$${ratePrice.toFixed(2)}</span>
+                                ${groupCheapest ? `<div class="small text-success mt-1"><i class="bi bi-check-circle"></i> Cheapest for ${rateCarrier}</div>` : ''}
                                 ${overallCheapestFlag ? `<div class="small text-success mt-1"><i class="bi bi-star-fill"></i> Overall Cheapest</div>` : ''}
                             </div>
                         </label>
@@ -2522,14 +2771,34 @@
             html += '</div>';
             $('#carrierList').html(html);
         },
-        error: function (xhr) {
-            console.error(xhr.responseText);
+        error: function (xhr, status, error) {
+            console.error('Error loading carriers:', {
+                xhr: xhr,
+                status: status,
+                error: error,
+                responseText: xhr.responseText
+            });
+            
+            let errorMessage = 'Failed to load carriers. Please try again.';
+            if (status === 'timeout') {
+                errorMessage = 'Request timed out. Please try again.';
+            } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                errorMessage = xhr.responseJSON.message;
+            } else if (xhr.status === 0) {
+                errorMessage = 'Network error. Please check your connection.';
+            }
+            
             $('#carrierList').html(`
                 <div class="text-center text-danger py-4">
                     <i class="bi bi-exclamation-triangle fs-3 d-block mb-2"></i>
-                    Failed to load carriers. Please try again.
+                    ${errorMessage}
+                    <br><small class="text-muted mt-2">If rates are not available, please fetch them first using the refresh button.</small>
                 </div>
             `);
+        },
+        complete: function() {
+            // Always clear any loading indicators
+            // This ensures we don't get stuck in loading state
         }
     });
 });
@@ -2581,6 +2850,20 @@
         success: function(response) {
             if (response.success && response.rate) {
                 const rate = response.rate;
+                // Update the row data in DataTable first to get updated row data
+                const row = table.row(function(idx, data) {
+                    return data.id == orderId;
+                });
+                let rowData = row.length ? row.data() : null;
+                if (row.length && rowData) {
+                    rowData.best_rate_o = rate;
+                    rowData.default_carrier = rate.carrier;
+                    rowData.default_service = rate.service;
+                    rowData.default_price = rate.price;
+                    rowData.default_source = rate.source;
+                    row.data(rowData);
+                }
+                
                 $container.html(`
                     <span>${rate.carrier}${rate.service ? ' - ' + rate.service : ''} $${parseFloat(rate.price || 0).toFixed(2)}</span>
                     <button
@@ -2597,28 +2880,26 @@
                         title="Refresh Rate">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
+                    <button
+                        class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
+                        data-order-id="${orderId}"
+                        title="Change Carrier">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
                 `);
                 
-                // Update the row data in DataTable
-                const row = table.row(function(idx, data) {
-                    return data.id == orderId;
-                });
-                if (row.length) {
-                    const rowData = row.data();
-                    rowData.best_rate_o = rate;
-                    row.data(rowData);
+                // Enable the checkbox for Best Rate (O) if conditions are met
                     
-                    // Enable the checkbox for Best Rate (O) if conditions are met
-                    const $checkboxO = $(`.order-checkbox-o[value="${orderId}"]`);
-                    if ($checkboxO.length) {
-                        const invValue = parseFloat(rowData.inv) || 0;
-                        const hasValidRecipient = rowData.recipient_name && rowData.recipient_name.trim() !== '';
-                        if (invValue > 0 && hasValidRecipient && rate && rate.carrier) {
-                            // Replace the info icon with checkbox if it exists
-                            const $cell = $checkboxO.closest('td');
-                            if ($cell.find('.info-icon').length) {
-                                $cell.html(`<input type="checkbox" class="order-checkbox-o" value="${orderId}" data-order-id="${orderId}">`);
-                            }
+                // Enable the checkbox for Best Rate (O) if conditions are met
+                const $checkboxO = $(`.order-checkbox-o[value="${orderId}"]`);
+                if ($checkboxO.length && rowData) {
+                    const invValue = parseFloat(rowData.inv) || 0;
+                    const hasValidRecipient = rowData.recipient_name && rowData.recipient_name.trim() !== '';
+                    if (invValue > 0 && hasValidRecipient && rate && rate.carrier) {
+                        // Replace the info icon with checkbox if it exists
+                        const $cell = $checkboxO.closest('td');
+                        if ($cell.find('.info-icon').length) {
+                            $cell.html(`<input type="checkbox" class="order-checkbox-o" value="${orderId}" data-order-id="${orderId}">`);
                         }
                     }
                 }
@@ -2645,6 +2926,12 @@
         error: function(xhr) {
             console.error(xhr.responseText);
             const errorMsg = xhr.responseJSON?.message || 'Failed to fetch rate';
+            // Get row data for edit-carrier button
+            const row = table.row(function(idx, data) {
+                return data.id == orderId;
+            });
+            let rowData = row.length ? row.data() : null;
+            
             $container.html(`
                 <span class="text-danger">${errorMsg}</span>
                 <button
@@ -2660,6 +2947,12 @@
                     data-ship-to-country="${shipToCountry}"
                     title="Retry">
                     <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button
+                    class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
+                    data-order='${rowData ? JSON.stringify(rowData).replace(/'/g,"&apos;") : ''}'
+                    title="Change Carrier">
+                    <i class="bi bi-pencil-square"></i>
                 </button>
             `);
         }
@@ -2736,7 +3029,7 @@
                     </button>
                     <button
                         class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
-                        data-order='${rowData ? JSON.stringify(rowData).replace(/'/g,"&apos;") : ''}'
+                        data-order-id="${orderId}"
                         title="Change Carrier">
                         <i class="bi bi-pencil-square"></i>
                     </button>

@@ -42,18 +42,40 @@ class AwaitingShipmentOrderBackupController extends Controller
     }
     public function getCarriers(Request $request)
     {
-        $orderId = $request->input('order_id');
+        try {
+            $orderId = $request->input('order_id');
+            
+            if (!$orderId) {
+                return response()->json([
+                    'success' => false,
+                    'rates' => [],
+                    'message' => 'Order ID is required'
+                ], 400);
+            }
 
-        $rates = OrderShippingRate::where('order_id', $orderId)
-            ->orderBy('price', 'asc')
-            ->where('service', '!=', 'USPS Media Mail') 
-            ->where('service', '!=', 'Saver Drop Off') 
-            ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%']) 
-            ->get(['id','carrier', 'service', 'price','source','is_cheapest']);
+            $rates = OrderShippingRate::where('order_id', $orderId)
+                ->orderBy('price', 'asc')
+                ->where('service', '!=', 'USPS Media Mail') 
+                ->where('service', '!=', 'Saver Drop Off') 
+                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%']) 
+                ->get(['id','carrier', 'service', 'price','source','is_cheapest']);
 
-        return response()->json([
-            'rates' => $rates
-        ]);
+            return response()->json([
+                'success' => true,
+                'rates' => $rates
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error in getCarriers: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'rates' => [],
+                'message' => 'Error loading carriers: ' . $e->getMessage()
+            ], 500);
+        }
     }
     public function index()
     {
@@ -1718,6 +1740,46 @@ public function fetchRateD(Request $request)
                 'success' => false,
                 'message' => 'No rates found'
             ], 404);
+        }
+        
+        // Save all rates to database for Best Rate (D) - similar to OrderRateFetcherService
+        $normalizedRates = $rateResult['rates'] ?? [];
+        foreach ($normalizedRates as $rate) {
+            OrderShippingRate::updateOrCreate(
+                [
+                    'order_id' => $orderId,
+                    'rate_id'  => $rate['rate_id'] ?? null,
+                    'service'  => $rate['service'],
+                    'carrier'  => $rate['carrier'],
+                ],
+                [
+                    'source'            => $rate['source'],
+                    'price'             => $rate['price'],
+                    'currency'          => $rate['currency'],
+                    'is_cheapest'       => 0,
+                ]
+            );
+        }
+        
+        // Mark the cheapest rate as is_cheapest and update order
+        $dbCheapestRate = OrderShippingRate::where('order_id', $orderId)
+            ->where('service', '!=', 'USPS Media Mail') 
+            ->where('service', '!=', 'Saver Drop Off')
+            ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+            ->orderBy('price', 'asc')
+            ->first();
+            
+        if ($dbCheapestRate) {
+            OrderShippingRate::where('order_id', $orderId)->update(['is_cheapest' => 0]);
+            $dbCheapestRate->update(['is_cheapest' => 1]);
+            
+            // Update order with default rate info
+            $order->default_rate_id = $dbCheapestRate->rate_id;
+            $order->default_carrier = $dbCheapestRate->carrier;
+            $order->default_price = $dbCheapestRate->price;
+            $order->default_currency = $dbCheapestRate->currency;
+            $order->shipping_rate_fetched = true;
+            $order->save();
         }
         
         return response()->json([
