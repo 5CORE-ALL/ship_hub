@@ -48,7 +48,7 @@ class ShippingLabelService
      * @param mixed $request Optional, used for rate_id
      * @return array
      */
-    public function createLabels(array $orderIds,$userId, $request = null): array
+    public function createLabels(array $orderIds,$userId, $rateInfoMap = null): array
     {
         ini_set("max_execution_time", 12000);
         $labels = [];
@@ -57,49 +57,135 @@ class ShippingLabelService
 
         foreach ($orderIds as $orderId) {
             try {
+                // CRITICAL: Check if order is locked by another process
                 $order = Order::with(["items", "cheapestRate"])->find($orderId);
 
                 if (!$order) {
+                    Log::warning("Order not found during bulk shipping", ['order_id' => $orderId]);
                     $labels[] = [
                         "order_id" => $orderId,
                         "success" => false,
                         "message" => "Order not found",
+                        "provider" => "unknown",
+                        "source" => "unknown"
                     ];
                     $failedCount++;
                     continue;
                 }
+                
+                // CRITICAL: Check if order is locked by another process (conflict detection)
+                if ($order->queue == 1 && $order->queue_started_at && $order->queue_started_at->lt(now()->subMinutes(10))) {
+                    // Order has been locked for more than 10 minutes - likely stuck
+                    Log::warning("Order {$orderId} appears to be stuck in queue, unlocking and skipping", [
+                        'queue_started_at' => $order->queue_started_at,
+                        'minutes_locked' => $order->queue_started_at->diffInMinutes(now())
+                    ]);
+                    $order->update(['queue' => 0]);
+                } elseif ($order->queue == 1 && $order->queue_started_at && $order->queue_started_at->gt(now()->subMinutes(1))) {
+                    // Order was recently locked (within last minute) - likely being processed by another request
+                    Log::warning("Order {$orderId} is currently being processed by another request, skipping", [
+                        'queue_started_at' => $order->queue_started_at
+                    ]);
+                    $labels[] = [
+                        "order_id" => $orderId,
+                        "success" => false,
+                        "message" => "Order is currently being processed by another request. Please try again in a moment.",
+                        "provider" => "unknown",
+                        "source" => "unknown"
+                    ];
+                    $failedCount++;
+                    continue;
+                }
+                
+                // CRITICAL: Check for active shipment to prevent duplicate label creation
                 $activeShipmentExists = Shipment::where("order_id", $orderId)
                     ->where("label_status", "active")
                     ->exists();
 
                 if ($activeShipmentExists) {
+                    Log::info("Order {$orderId} already has active shipment, skipping label creation");
                     $labels[] = [
                         "order_id" => $orderId,
                         "success" => true,
                         "message" =>
                             "Active label already exists, skipped creation",
-                        "provider" => $provider ?? "unknown",
-                        "source" => $source ?? "unknown",
+                        "provider" => "unknown",
+                        "source" => "unknown",
                     ];
                     $successCount++; // Count as success since label already exists
                     continue;
                 }
 
-                $cheapestRate = $order->cheapestRate;
+                // Check if rate type is specified (O for Best Rate O, D for Best Rate D)
+                $rateInfo = is_array($rateInfoMap) && isset($rateInfoMap[$orderId]) ? $rateInfoMap[$orderId] : ['rate_type' => 'D'];
+                $rateType = $rateInfo['rate_type'] ?? 'D';
+                
+                $selectedRate = null;
+                $rateId = null;
+                $source = null;
+                $carrier = null;
 
-                if (!$cheapestRate) {
+                // For rate type O, use the rate_info passed from frontend
+                if ($rateType === 'O' && isset($rateInfo['rate_info']) && $rateInfo['rate_info']) {
+                    Log::info("Using Best Rate (O) for order {$orderId}", [
+                        'order_id' => $orderId,
+                        'rate_type' => $rateType,
+                        'rate_info' => $rateInfo['rate_info']
+                    ]);
+                    
+                    // Try to find the rate by rate_id first (if provided)
+                    if (!empty($rateInfo['rate_id'])) {
+                        $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                            ->where('rate_id', $rateInfo['rate_id'])
+                            ->first();
+                    }
+                    
+                    // If not found by rate_id, try to find by carrier and service
+                    if (!$selectedRate && !empty($rateInfo['rate_info']['carrier']) && !empty($rateInfo['rate_info']['service'])) {
+                        $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                            ->where('carrier', $rateInfo['rate_info']['carrier'])
+                            ->where('service', $rateInfo['rate_info']['service'])
+                            ->first();
+                    }
+                    
+                    if ($selectedRate) {
+                        $rateId = $selectedRate->rate_id;
+                        $source = $selectedRate->source;
+                        $carrier = $selectedRate->carrier;
+                        Log::info("Found Best Rate (O) for order {$orderId}", [
+                            'rate_id' => $rateId,
+                            'carrier' => $carrier,
+                            'service' => $selectedRate->service,
+                            'price' => $selectedRate->price
+                        ]);
+                    } else {
+                        Log::warning("Best Rate (O) not found in database for order {$orderId}, falling back to cheapest rate", [
+                            'rate_info' => $rateInfo['rate_info']
+                        ]);
+                        // Fallback to cheapest rate if Best Rate (O) not found
+                        $selectedRate = $order->cheapestRate;
+                    }
+                } else {
+                    // Default to cheapest rate for rate type D
+                    $selectedRate = $order->cheapestRate;
+                }
+
+                if (!$selectedRate) {
                     $labels[] = [
                         "order_id" => $orderId,
                         "success" => false,
-                        "message" => "No cheapest shipping rate found",
+                        "message" => $rateType === 'O' ? "Best Rate (O) not found for this order" : "No cheapest shipping rate found",
                     ];
                     $failedCount++;
                     continue;
                 }
 
-                $rateId = $cheapestRate->rate_id;
-                $source = $cheapestRate->source;
-                $carrier = $cheapestRate->carrier;
+                // Use selected rate values if not already set (for rate type D)
+                if (!$rateId) {
+                    $rateId = $selectedRate->rate_id;
+                    $source = $selectedRate->source;
+                    $carrier = $selectedRate->carrier;
+                }
 
                 $shipper = Shipper::first();
                 
@@ -892,19 +978,25 @@ class ShippingLabelService
                     [
                         "message" => $e->getMessage(),
                         "trace" => $e->getTraceAsString(),
+                        "order_id" => $orderId
                     ]
                 );
                 
-                // Ensure order is unlocked even on exception
+                // CRITICAL: Ensure order is unlocked even on exception
                 try {
-                    Order::where('id', $orderId)->update(['queue' => 0]);
+                    $unlocked = Order::where('id', $orderId)->update(['queue' => 0]);
+                    if ($unlocked) {
+                        Log::info("Order {$orderId} unlocked after exception");
+                    }
                 } catch (\Exception $unlockException) {
-                    Log::error("Failed to unlock order {$orderId} after exception", [
-                        "unlock_error" => $unlockException->getMessage()
+                    Log::error("CRITICAL: Failed to unlock order {$orderId} after exception", [
+                        "unlock_error" => $unlockException->getMessage(),
+                        "trace" => $unlockException->getTraceAsString()
                     ]);
                 }
                 
                 // Preserve original order_status - only mark label as failed
+                // This ensures the order remains visible in awaiting shipment
                 try {
                     $order = Order::find($orderId);
                     if ($order) {
@@ -912,21 +1004,32 @@ class ShippingLabelService
                             "label_status" => "failed",
                             "printing_status" => 0,
                             // Keep original order_status - don't change it
+                            // This is critical so orders don't disappear
                         ]);
+                        Log::info("Order {$orderId} marked as failed but preserved order_status");
+                    } else {
+                        Log::warning("Order {$orderId} not found when trying to update status after exception");
                     }
                 } catch (\Exception $updateException) {
-                    Log::error("Failed to update order {$orderId} status after exception", [
-                        "update_error" => $updateException->getMessage()
+                    Log::error("CRITICAL: Failed to update order {$orderId} status after exception", [
+                        "update_error" => $updateException->getMessage(),
+                        "trace" => $updateException->getTraceAsString()
                     ]);
                 }
 
+                // CRITICAL: Always add to labels array so order is tracked
                 $labels[] = [
                     "order_id" => $orderId,
                     "success" => false,
-                    "message" => $e->getMessage(),
+                    "message" => "Exception: " . $e->getMessage(),
+                    "error" => $e->getMessage(),
+                    "provider" => "unknown",
+                    "source" => "unknown"
                 ];
                 $failedCount++;
+                
                 // Continue to next order - don't break the loop
+                // This ensures all orders are processed even if some fail
                 continue;
             }
         }

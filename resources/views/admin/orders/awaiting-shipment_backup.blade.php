@@ -500,13 +500,15 @@
             <table id="shipmentTable" class="shipment-table table table-bordered nowrap" style="width:100%">
                 <thead>
                     <tr>
-                        <th><input type="checkbox" id="selectAll"></th>
                         <th>Marketplace</th>
                         <th>Order Number</th>
                         <th>Order Age</th>
                         <th>Order Date</th>
                         <th>SKU</th>
-                        <th>Best Rate</th>
+                        <th><input type="checkbox" id="selectAllD"></th>
+                        <th>Best Rate (D)</th>
+                        <th><input type="checkbox" id="selectAllO"></th>
+                        <th>Best Rate (O)</th>
                         <th>Recipient</th>
                         <th>L (D)</th>
                         <th>W (D)</th>
@@ -519,6 +521,7 @@
                         <th>L</th>
                         <th>WT</th>
                         <th>WT ACT</th>
+                        <th>WT ACT S</th>
                         <th>INV</th>
                         <th>Qty</th>
                         <th>Order Total</th>
@@ -668,35 +671,6 @@
             ],
             columns: [
                 {
-                    data: 'id',
-                    title: '<input type="checkbox" id="selectAll">',
-                    render: function(data, type, row) {
-                        // Check if INV is 0 or null - show red triangle and disable checkbox
-                        const invValue = parseFloat(row.inv) || 0;
-                        const hasNoInventory = invValue === 0;
-                        
-                        // return `<input type="checkbox" class="order-checkbox" value="${data}">`;
-                        const hasValidWeight = row.weight != null && row.default_price != null && parseFloat(row.weight) > 0;
-                        const hasValidRecipient = row.recipient_name && row.recipient_name.trim() !== '';
-                        
-                        // If no inventory, show red triangle and disable
-                        if (hasNoInventory) {
-                            return `<span class="text-danger" title="No inventory available (INV = 0). Order cannot be shipped."><i class="fas fa-exclamation-triangle"></i></span>`;
-                        }
-                        
-                        if (hasValidWeight && hasValidRecipient) {
-                            return `<input type="checkbox" class="order-checkbox" value="${data}">`;
-                        } else if (!hasValidRecipient) {
-                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name is required"><i class="fas fa-user-times"></i></a>`;
-                        } else {
-                            return `<a href="#" class="text-info info-icon" data-bs-toggle="modal" data-bs-target="#weightInfoModal" title="Click for info"><i class="fas fa-info-circle"></i></a>`;
-                        }
-                    },
-                    orderable: false,
-                    searchable: false,
-                    className: 'text-center'
-                },
-                {
                     data: 'marketplace',
                     title: 'Marketplace',
                     render: function(data, type, row) {
@@ -796,8 +770,40 @@
                     visible: columnVisibilityMap['sku'] !== undefined ? columnVisibilityMap['sku'] : true
                 },
                 {
+                    data: 'id',
+                    title: '<input type="checkbox" id="selectAllD">',
+                    render: function(data, type, row) {
+                        // Check if INV is 0 or null - show red triangle and disable checkbox
+                        const invValue = parseFloat(row.inv) || 0;
+                        const hasNoInventory = invValue === 0;
+                        
+                        const hasValidWeight = row.weight != null && row.default_price != null && parseFloat(row.weight) > 0;
+                        const hasValidRecipient = row.recipient_name && row.recipient_name.trim() !== '';
+                        const shippingRateFetched = row.shipping_rate_fetched !== undefined ? row.shipping_rate_fetched : (row.shipping_rate_fetched === 0 ? 0 : 1);
+                        const hasValidRate = shippingRateFetched == 1 || shippingRateFetched === true;
+                        
+                        // If no inventory, show red triangle and disable
+                        if (hasNoInventory) {
+                            return `<span class="text-danger" title="No inventory available (INV = 0). Order cannot be shipped."><i class="fas fa-exclamation-triangle"></i></span>`;
+                        }
+                        
+                        if (hasValidWeight && hasValidRecipient && hasValidRate) {
+                            return `<input type="checkbox" class="order-checkbox-d" value="${data}" data-order-id="${data}">`;
+                        } else if (!hasValidRecipient) {
+                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name is required"><i class="fas fa-user-times"></i></a>`;
+                        } else if (!hasValidRate) {
+                            return `<a href="#" class="text-info info-icon" title="Rates not fetched yet"><i class="fas fa-info-circle"></i></a>`;
+                        } else {
+                            return `<a href="#" class="text-info info-icon" data-bs-toggle="modal" data-bs-target="#weightInfoModal" title="Click for info"><i class="fas fa-info-circle"></i></a>`;
+                        }
+                    },
+                    orderable: false,
+                    searchable: false,
+                    className: 'text-center'
+                },
+                {
                     data: null,
-                    title: 'Best Rate',
+                    title: 'Best Rate (D)',
                     render: function(data, type, row) {
                         let defaultCarrier = row.default_carrier || '—';
                         let defaultService = row.default_service || '';
@@ -830,6 +836,96 @@
                     visible: columnVisibilityMap['default_carrier'] !== undefined
                         ? columnVisibilityMap['default_carrier']
                         : true
+                },
+                {
+                    data: 'id',
+                    title: '<input type="checkbox" id="selectAllO">',
+                    render: function(data, type, row) {
+                        // Check if INV is 0 or null - show red triangle and disable checkbox
+                        const invValue = parseFloat(row.inv) || 0;
+                        const hasNoInventory = invValue === 0;
+                        
+                        const length = parseFloat(row.length) || 0;
+                        const width = parseFloat(row.width) || 0;
+                        const height = parseFloat(row.height) || 0;
+                        const wt_act = parseFloat(row.wt_act) || 0;
+                        const quantity = parseFloat(row.quantity) || 0;
+                        const wt_act_s = wt_act * quantity;
+                        const hasValidDimensions = length > 0 && width > 0 && height > 0 && wt_act_s > 0;
+                        const hasValidRecipient = row.recipient_name && row.recipient_name.trim() !== '';
+                        const cachedRate = row.best_rate_o || null;
+                        const hasValidRate = cachedRate && cachedRate.carrier;
+                        
+                        // If no inventory, show red triangle and disable
+                        if (hasNoInventory) {
+                            return `<span class="text-danger" title="No inventory available (INV = 0). Order cannot be shipped."><i class="fas fa-exclamation-triangle"></i></span>`;
+                        }
+                        
+                        if (hasValidDimensions && hasValidRecipient && hasValidRate) {
+                            return `<input type="checkbox" class="order-checkbox-o" value="${data}" data-order-id="${data}">`;
+                        } else if (!hasValidRecipient) {
+                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name is required"><i class="fas fa-user-times"></i></a>`;
+                        } else if (!hasValidDimensions) {
+                            return `<a href="#" class="text-info info-icon" title="Dimensions (L, W, H, WT) are required"><i class="fas fa-info-circle"></i></a>`;
+                        } else if (!hasValidRate) {
+                            return `<a href="#" class="text-info info-icon" title="Best Rate (O) not fetched yet"><i class="fas fa-info-circle"></i></a>`;
+                        } else {
+                            return `<a href="#" class="text-info info-icon" title="Click for info"><i class="fas fa-info-circle"></i></a>`;
+                        }
+                    },
+                    orderable: false,
+                    searchable: false,
+                    className: 'text-center'
+                },
+                {
+                    data: null,
+                    title: 'Best Rate (O)',
+                    render: function(data, type, row) {
+                        const orderId = row.id;
+                        const length = parseFloat(row.length) || 0;
+                        const width = parseFloat(row.width) || 0;
+                        const height = parseFloat(row.height) || 0;
+                        const wt_act = parseFloat(row.wt_act) || 0;
+                        const quantity = parseFloat(row.quantity) || 0;
+                        const wt_act_s = wt_act * quantity;
+                        
+                        // Check if we have cached rate for this order
+                        const cachedRate = row.best_rate_o || null;
+                        
+                        let displayHtml = '';
+                        if (cachedRate && cachedRate.carrier) {
+                            displayHtml = `
+                                <span>${cachedRate.carrier}${cachedRate.service ? ' - ' + cachedRate.service : ''} $${parseFloat(cachedRate.price || 0).toFixed(2)}</span>
+                            `;
+                        } else {
+                            displayHtml = '<span class="text-muted">—</span>';
+                        }
+                        
+                        return `
+                            <div class="best-rate-o-container" data-order-id="${orderId}">
+                                ${displayHtml}
+                                <button
+                                    class="btn btn-sm btn-link text-primary ms-2 fetch-rate-o-btn"
+                                    data-order-id="${orderId}"
+                                    data-length="${length}"
+                                    data-width="${width}"
+                                    data-height="${height}"
+                                    data-weight="${wt_act_s}"
+                                    data-ship-to-zip="${row.ship_postal_code || ''}"
+                                    data-ship-to-state="${row.ship_state || ''}"
+                                    data-ship-to-city="${row.ship_city || ''}"
+                                    data-ship-to-country="${row.ship_country || 'US'}"
+                                    title="Fetch Best Rate (O)"
+                                    ${(length === 0 || width === 0 || height === 0 || wt_act_s === 0) ? 'disabled' : ''}>
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                        `;
+                    },
+                    orderable: false,
+                    searchable: false,
+                    className: 'text-center',
+                    visible: columnVisibilityMap['best_rate_o'] !== undefined ? columnVisibilityMap['best_rate_o'] : true
                 },
                 {
                     data: 'recipient_name',
@@ -1066,6 +1162,25 @@
                     visible: columnVisibilityMap['wt_act'] !== undefined ? columnVisibilityMap['wt_act'] : true
                 },
                 {
+                    data: null,
+                    title: 'WT ACT S',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        const wt_act = parseFloat(row.wt_act) || 0;
+                        const quantity = parseFloat(row.quantity) || 0;
+                        const wt_act_s = wt_act * quantity;
+                        
+                        if (wt_act_s === 0 || isNaN(wt_act_s)) return '—';
+                        
+                        const decimals = (wt_act_s.toString().split('.')[1] || '').length;
+                        if (decimals > 0) {
+                            return decimals > 1 ? wt_act_s.toFixed(decimals - 1) : Math.round(wt_act_s).toString();
+                        }
+                        return wt_act_s.toString();
+                    },
+                    visible: columnVisibilityMap['wt_act_s'] !== undefined ? columnVisibilityMap['wt_act_s'] : true
+                },
+                {
                     data: 'inv',
                     title: 'INV',
                     className: 'text-end',
@@ -1282,41 +1397,111 @@
                 }
             });
         });
-        $('#selectAll').on('change', function() {
+        $('#selectAllD').on('change', function() {
             // Only check orders that are eligible (not disabled and have inventory)
-            $('.order-checkbox', table.rows().nodes()).each(function() {
+            $('.order-checkbox-d', table.rows().nodes()).each(function() {
                 const $checkbox = $(this);
                 const row = table.row($checkbox.closest('tr')).data();
                 const invValue = parseFloat(row?.inv) || 0;
                 // Only check if order has inventory (INV > 0)
                 if (invValue > 0) {
-                    $checkbox.prop('checked', $('#selectAll').prop('checked'));
+                    $checkbox.prop('checked', $('#selectAllD').prop('checked'));
                 }
             });
             updateBulkButtonState();
         });
-        $('#shipmentTable').on('change', '.order-checkbox', function() {
-            updateBulkButtonState();
-        });
-        function updateBulkButtonState() {
-            let selectedCount = $('.order-checkbox:checked').length;
-            $('.bulk-buy-shipping-btn').prop('disabled', selectedCount === 0);
-            $('.bulk-update-dimensions-btn').prop('disabled', selectedCount === 0);
-            $('#bulkDimensionInputs').toggleClass('active', selectedCount > 0);
-
-            $('#selectedCount').text(selectedCount);
-            $('#selectedCountDisplay').toggleClass('text-primary', selectedCount > 0).toggleClass('text-muted', selectedCount === 0);
-        }
-        $('.bulk-buy-shipping-btn').on('click', function() {
-            // Filter out orders with INV = 0
-            let selectedOrders = [];
-            $('.order-checkbox:checked').each(function() {
+        $('#selectAllO').on('change', function() {
+            // Only check orders that are eligible (not disabled and have inventory)
+            $('.order-checkbox-o', table.rows().nodes()).each(function() {
                 const $checkbox = $(this);
                 const row = table.row($checkbox.closest('tr')).data();
                 const invValue = parseFloat(row?.inv) || 0;
+                // Only check if order has inventory (INV > 0)
+                if (invValue > 0) {
+                    $checkbox.prop('checked', $('#selectAllO').prop('checked'));
+                }
+            });
+            updateBulkButtonState();
+        });
+        $('#shipmentTable').on('change', '.order-checkbox-d, .order-checkbox-o', function() {
+            const $checkbox = $(this);
+            const orderId = $checkbox.val();
+            const isD = $checkbox.hasClass('order-checkbox-d');
+            
+            // If this checkbox is checked, uncheck the other type for the same order
+            if ($checkbox.is(':checked')) {
+                if (isD) {
+                    $(`.order-checkbox-o[value="${orderId}"]`).prop('checked', false);
+                } else {
+                    $(`.order-checkbox-d[value="${orderId}"]`).prop('checked', false);
+                }
+            }
+            
+            updateBulkButtonState();
+        });
+        function updateBulkButtonState() {
+            let selectedCountD = $('.order-checkbox-d:checked').length;
+            let selectedCountO = $('.order-checkbox-o:checked').length;
+            let totalSelectedCount = selectedCountD + selectedCountO;
+            $('.bulk-buy-shipping-btn').prop('disabled', totalSelectedCount === 0);
+            $('.bulk-update-dimensions-btn').prop('disabled', totalSelectedCount === 0);
+            $('#bulkDimensionInputs').toggleClass('active', totalSelectedCount > 0);
+
+            $('#selectedCount').text(totalSelectedCount);
+            $('#selectedCountDisplay').toggleClass('text-primary', totalSelectedCount > 0).toggleClass('text-muted', totalSelectedCount === 0);
+        }
+        $('.bulk-buy-shipping-btn').on('click', function() {
+            // Collect orders with their rate types (D or O)
+            let selectedOrders = [];
+            
+            // Process Best Rate (D) checkboxes
+            $('.order-checkbox-d:checked').each(function() {
+                const $checkbox = $(this);
+                const orderId = $(this).val();
+                const row = table.row($checkbox.closest('tr')).data();
+                const invValue = parseFloat(row?.inv) || 0;
+                
                 // Only include orders with inventory (INV > 0)
                 if (invValue > 0) {
-                    selectedOrders.push($(this).val());
+                    const orderData = {
+                        order_id: parseInt(orderId),
+                        rate_type: 'D',
+                        rate_id: row.default_rate_id || null,
+                        rate_info: {
+                            carrier: row.default_carrier || null,
+                            service: row.default_service || null,
+                            price: row.default_price || null,
+                            source: row.default_source || null
+                        }
+                    };
+                    selectedOrders.push(orderData);
+                } else {
+                    // Uncheck orders with no inventory
+                    $checkbox.prop('checked', false);
+                }
+            });
+            
+            // Process Best Rate (O) checkboxes
+            $('.order-checkbox-o:checked').each(function() {
+                const $checkbox = $(this);
+                const orderId = $(this).val();
+                const row = table.row($checkbox.closest('tr')).data();
+                const invValue = parseFloat(row?.inv) || 0;
+                
+                // Only include orders with inventory (INV > 0)
+                if (invValue > 0) {
+                    const cachedRate = row.best_rate_o || null;
+                    const orderData = {
+                        order_id: parseInt(orderId),
+                        rate_type: 'O',
+                        rate_id: cachedRate?.rate_id || null,
+                        rate_info: cachedRate ? {
+                            carrier: cachedRate.carrier || null,
+                            service: cachedRate.service || null,
+                            price: cachedRate.price || null
+                        } : null
+                    };
+                    selectedOrders.push(orderData);
                 } else {
                     // Uncheck orders with no inventory
                     $checkbox.prop('checked', false);
@@ -1335,7 +1520,9 @@
             }
             
             // Check if any orders were filtered out
-            const totalChecked = $('.order-checkbox:checked').length;
+            const totalCheckedD = $('.order-checkbox-d:checked').length;
+            const totalCheckedO = $('.order-checkbox-o:checked').length;
+            const totalChecked = totalCheckedD + totalCheckedO;
             if (totalChecked > selectedOrders.length) {
                 const filteredCount = totalChecked - selectedOrders.length;
                 Swal.fire({
@@ -1379,7 +1566,7 @@
                         url: "{{ route('orders.bulk-shipping') }}",
                         type: 'POST',
                         data: {
-                            order_ids: selectedOrders,
+                            orders: selectedOrders,
                             _token: '{{ csrf_token() }}'
                         },
                         success: function(response) {
@@ -1426,7 +1613,7 @@
             });
         }
         $('.bulk-mark-ship-btn').on('click', function() {
-    let selectedOrders = $('.order-checkbox:checked').map(function() {
+    let selectedOrders = $('.order-checkbox-d:checked, .order-checkbox-o:checked').map(function() {
         return $(this).val();
     }).get();
 
@@ -1503,7 +1690,7 @@
 });
 
        $('.bulk-update-dimensions-btn').on('click', function () {
-    let selectedOrders = $('.order-checkbox:checked').map(function () {
+    let selectedOrders = $('.order-checkbox-d:checked, .order-checkbox-o:checked').map(function () {
         return $(this).val();
     }).get();
     if (selectedOrders.length === 0) {
@@ -2233,6 +2420,138 @@
                     <i class="bi bi-exclamation-triangle fs-3 d-block mb-2"></i>
                     Failed to load carriers. Please try again.
                 </div>
+            `);
+        }
+    });
+});
+        $(document).on('click', '.fetch-rate-o-btn', function() {
+    const $btn = $(this);
+    const orderId = $btn.data('order-id');
+    const length = parseFloat($btn.data('length')) || 0;
+    const width = parseFloat($btn.data('width')) || 0;
+    const height = parseFloat($btn.data('height')) || 0;
+    const weight = parseFloat($btn.data('weight')) || 0;
+    const shipToZip = $btn.data('ship-to-zip') || '';
+    const shipToState = $btn.data('ship-to-state') || '';
+    const shipToCity = $btn.data('ship-to-city') || '';
+    const shipToCountry = $btn.data('ship-to-country') || 'US';
+    
+    if (length === 0 || width === 0 || height === 0 || weight === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Missing Data',
+            text: 'Please ensure L, W, H, and WT ACT S values are available',
+            confirmButtonText: 'OK'
+        });
+        return;
+    }
+    
+    // Disable button and show loading
+    $btn.prop('disabled', true);
+    const $container = $btn.closest('.best-rate-o-container');
+    const originalHtml = $container.html();
+    $container.html(`
+        <span class="text-muted"><i class="spinner-border spinner-border-sm"></i> Fetching rates...</span>
+    `);
+    
+    $.ajax({
+        url: '{{ route("orders.fetch-rate-o") }}',
+        type: 'POST',
+        data: {
+            order_id: orderId,
+            length: length,
+            width: width,
+            height: height,
+            weight: weight,
+            ship_to_zip: shipToZip,
+            ship_to_state: shipToState,
+            ship_to_city: shipToCity,
+            ship_to_country: shipToCountry,
+            _token: '{{ csrf_token() }}'
+        },
+        success: function(response) {
+            if (response.success && response.rate) {
+                const rate = response.rate;
+                $container.html(`
+                    <span>${rate.carrier}${rate.service ? ' - ' + rate.service : ''} $${parseFloat(rate.price || 0).toFixed(2)}</span>
+                    <button
+                        class="btn btn-sm btn-link text-primary ms-2 fetch-rate-o-btn"
+                        data-order-id="${orderId}"
+                        data-length="${length}"
+                        data-width="${width}"
+                        data-height="${height}"
+                        data-weight="${weight}"
+                        data-ship-to-zip="${shipToZip}"
+                        data-ship-to-state="${shipToState}"
+                        data-ship-to-city="${shipToCity}"
+                        data-ship-to-country="${shipToCountry}"
+                        title="Refresh Rate">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                `);
+                
+                // Update the row data in DataTable
+                const row = table.row(function(idx, data) {
+                    return data.id == orderId;
+                });
+                if (row.length) {
+                    const rowData = row.data();
+                    rowData.best_rate_o = rate;
+                    row.data(rowData);
+                    
+                    // Enable the checkbox for Best Rate (O) if conditions are met
+                    const $checkboxO = $(`.order-checkbox-o[value="${orderId}"]`);
+                    if ($checkboxO.length) {
+                        const invValue = parseFloat(rowData.inv) || 0;
+                        const hasValidRecipient = rowData.recipient_name && rowData.recipient_name.trim() !== '';
+                        if (invValue > 0 && hasValidRecipient && rate && rate.carrier) {
+                            // Replace the info icon with checkbox if it exists
+                            const $cell = $checkboxO.closest('td');
+                            if ($cell.find('.info-icon').length) {
+                                $cell.html(`<input type="checkbox" class="order-checkbox-o" value="${orderId}" data-order-id="${orderId}">`);
+                            }
+                        }
+                    }
+                }
+            } else {
+                $container.html(`
+                    <span class="text-danger">${response.message || 'Failed to fetch rate'}</span>
+                    <button
+                        class="btn btn-sm btn-link text-primary ms-2 fetch-rate-o-btn"
+                        data-order-id="${orderId}"
+                        data-length="${length}"
+                        data-width="${width}"
+                        data-height="${height}"
+                        data-weight="${weight}"
+                        data-ship-to-zip="${shipToZip}"
+                        data-ship-to-state="${shipToState}"
+                        data-ship-to-city="${shipToCity}"
+                        data-ship-to-country="${shipToCountry}"
+                        title="Retry">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                `);
+            }
+        },
+        error: function(xhr) {
+            console.error(xhr.responseText);
+            const errorMsg = xhr.responseJSON?.message || 'Failed to fetch rate';
+            $container.html(`
+                <span class="text-danger">${errorMsg}</span>
+                <button
+                    class="btn btn-sm btn-link text-primary ms-2 fetch-rate-o-btn"
+                    data-order-id="${orderId}"
+                    data-length="${length}"
+                    data-width="${width}"
+                    data-height="${height}"
+                    data-weight="${weight}"
+                    data-ship-to-zip="${shipToZip}"
+                    data-ship-to-state="${shipToState}"
+                    data-ship-to-city="${shipToCity}"
+                    data-ship-to-country="${shipToCountry}"
+                    title="Retry">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
             `);
         }
     });
