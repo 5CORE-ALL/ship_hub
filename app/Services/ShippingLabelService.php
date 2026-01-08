@@ -104,27 +104,42 @@ class ShippingLabelService
                     }
                 }
                 
-                if ($order->queue == 1 && $queueStartedAt && $queueStartedAt->lt(now()->subMinutes(10))) {
-                    // Order has been locked for more than 10 minutes - likely stuck
-                    Log::warning("Order {$orderId} appears to be stuck in queue, unlocking and skipping", [
-                        'queue_started_at' => $queueStartedAt,
-                        'minutes_locked' => $queueStartedAt->diffInMinutes(now())
-                    ]);
-                    $order->update(['queue' => 0]);
-                } elseif ($order->queue == 1 && $queueStartedAt && $queueStartedAt->gt(now()->subMinutes(1))) {
-                    // Order was recently locked (within last minute) - likely being processed by another request
-                    Log::warning("Order {$orderId} is currently being processed by another request, skipping", [
-                        'queue_started_at' => $queueStartedAt
-                    ]);
-                    $labels[] = [
-                        "order_id" => $orderId,
-                        "success" => false,
-                        "message" => "Order is currently being processed by another request. Please try again in a moment.",
-                        "provider" => "unknown",
-                        "source" => "unknown"
-                    ];
-                    $failedCount++;
-                    continue;
+                // Conflict detection logic:
+                // The controller locks orders before calling this function, so orders locked <1 minute ago
+                // are from the current request and should proceed.
+                // Only skip orders that were locked 1-10 minutes ago (likely another concurrent request)
+                
+                if ($order->queue == 1 && $queueStartedAt) {
+                    $secondsAgo = $queueStartedAt->diffInSeconds(now());
+                    
+                    if ($queueStartedAt->lt(now()->subMinutes(10))) {
+                        // Order has been locked for more than 10 minutes - likely stuck
+                        Log::warning("Order {$orderId} appears to be stuck in queue, unlocking and skipping", [
+                            'queue_started_at' => $queueStartedAt,
+                            'minutes_locked' => $queueStartedAt->diffInMinutes(now())
+                        ]);
+                        $order->update(['queue' => 0]);
+                    } elseif ($secondsAgo > 60 && $secondsAgo < 600) {
+                        // Order was locked 1-10 minutes ago - likely another concurrent request
+                        Log::warning("Order {$orderId} is currently being processed by another request (locked {$secondsAgo} seconds ago), skipping", [
+                            'queue_started_at' => $queueStartedAt,
+                            'seconds_ago' => $secondsAgo
+                        ]);
+                        $labels[] = [
+                            "order_id" => $orderId,
+                            "success" => false,
+                            "message" => "Order is currently being processed by another request. Please try again in a moment.",
+                            "provider" => "unknown",
+                            "source" => "unknown"
+                        ];
+                        $failedCount++;
+                        continue;
+                    } else {
+                        // Order was locked <1 minute ago - this is from current request, proceed
+                        Log::info("Order {$orderId} was locked {$secondsAgo} seconds ago (current request), proceeding", [
+                            'queue_started_at' => $queueStartedAt
+                        ]);
+                    }
                 }
                 
                 // CRITICAL: Check for active shipment to prevent duplicate label creation
