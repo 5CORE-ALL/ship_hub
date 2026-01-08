@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use App\Services\BulkShippingSummaryService;
 use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 
 
 class ShippingLabelService
@@ -74,17 +75,31 @@ class ShippingLabelService
                 }
                 
                 // CRITICAL: Check if order is locked by another process (conflict detection)
-                if ($order->queue == 1 && $order->queue_started_at && $order->queue_started_at->lt(now()->subMinutes(10))) {
+                // Convert queue_started_at to Carbon if it's a string
+                $queueStartedAt = $order->queue_started_at;
+                if ($queueStartedAt && !($queueStartedAt instanceof Carbon)) {
+                    try {
+                        $queueStartedAt = Carbon::parse($queueStartedAt);
+                    } catch (\Exception $e) {
+                        Log::warning("Failed to parse queue_started_at for order {$orderId}", [
+                            'queue_started_at' => $order->queue_started_at,
+                            'error' => $e->getMessage()
+                        ]);
+                        $queueStartedAt = null;
+                    }
+                }
+                
+                if ($order->queue == 1 && $queueStartedAt && $queueStartedAt->lt(now()->subMinutes(10))) {
                     // Order has been locked for more than 10 minutes - likely stuck
                     Log::warning("Order {$orderId} appears to be stuck in queue, unlocking and skipping", [
-                        'queue_started_at' => $order->queue_started_at,
-                        'minutes_locked' => $order->queue_started_at->diffInMinutes(now())
+                        'queue_started_at' => $queueStartedAt,
+                        'minutes_locked' => $queueStartedAt->diffInMinutes(now())
                     ]);
                     $order->update(['queue' => 0]);
-                } elseif ($order->queue == 1 && $order->queue_started_at && $order->queue_started_at->gt(now()->subMinutes(1))) {
+                } elseif ($order->queue == 1 && $queueStartedAt && $queueStartedAt->gt(now()->subMinutes(1))) {
                     // Order was recently locked (within last minute) - likely being processed by another request
                     Log::warning("Order {$orderId} is currently being processed by another request, skipping", [
-                        'queue_started_at' => $order->queue_started_at
+                        'queue_started_at' => $queueStartedAt
                     ]);
                     $labels[] = [
                         "order_id" => $orderId,
