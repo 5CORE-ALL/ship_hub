@@ -2417,6 +2417,15 @@
                 `);
                 return;
             }
+            // First, find the absolute cheapest rate from ALL rates (not just top 3 per carrier)
+            // This ensures we get the true lowest rate across all carriers and services
+            let overallCheapest = null;
+            response.rates.forEach(rate => {
+                if (!overallCheapest || parseFloat(rate.price) < parseFloat(overallCheapest.price)) {
+                    overallCheapest = rate;
+                }
+            });
+            
             // Group rates by carrier
             const groupedRates = {};
             response.rates.forEach(rate => {
@@ -2426,27 +2435,38 @@
                 groupedRates[rate.carrier].push(rate);
             });
             // For each group, sort by price and take top 3
+            // But ensure the overall cheapest rate is always included even if it's not in top 3
             const processedGroups = {};
             Object.keys(groupedRates).forEach(carrier => {
                 const sortedGroup = groupedRates[carrier]
-                    .sort((a, b) => parseFloat(a.price) - parseFloat(b.price))
-                    .slice(0, 3);
+                    .sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                
+                // Take top 3, but ensure overall cheapest is included if it belongs to this carrier
+                let topRates = sortedGroup.slice(0, 3);
+                if (overallCheapest && overallCheapest.carrier === carrier) {
+                    // Check if overall cheapest is already in top 3
+                    const isInTop3 = topRates.some(r => r.id === overallCheapest.id);
+                    if (!isInTop3) {
+                        // Replace the 3rd item with overall cheapest if it's cheaper
+                        if (topRates.length >= 3 && parseFloat(overallCheapest.price) < parseFloat(topRates[2].price)) {
+                            topRates[2] = overallCheapest;
+                        } else if (topRates.length < 3) {
+                            topRates.push(overallCheapest);
+                        }
+                        // Re-sort after adding overall cheapest
+                        topRates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                    }
+                }
+                
                 processedGroups[carrier] = {
-                    rates: sortedGroup,
-                    cheapestPrice: parseFloat(sortedGroup[0].price)
+                    rates: topRates,
+                    cheapestPrice: parseFloat(topRates[0].price)
                 };
             });
             // Sort groups by cheapest price
             const sortedCarriers = Object.keys(processedGroups)
                 .sort((a, b) => processedGroups[a].cheapestPrice - processedGroups[b].cheapestPrice);
-            // Find overall cheapest (optional, just for display)
-            let overallCheapest = null;
-            sortedCarriers.forEach(carrier => {
-                const groupCheapest = processedGroups[carrier].rates[0];
-                if (!overallCheapest || parseFloat(groupCheapest.price) < parseFloat(overallCheapest.price)) {
-                    overallCheapest = groupCheapest;
-                }
-            });
+            
             // Build HTML
             let html = '<div class="list-group">';
             sortedCarriers.forEach((carrier, carrierIndex) => {
@@ -2464,9 +2484,13 @@
                 // List items
                 group.rates.forEach((rate, serviceIndex) => {
                     const groupCheapest = serviceIndex === 0;
-                    const overallCheapestFlag = rate.id === overallCheapest.id;
-                    // ✅ Default checked based on is_cheapest from backend
-                    const checked = rate.is_cheapest == 1 ? 'checked' : '';
+                    // Check if this rate is the overall cheapest (compare by id and price to be safe)
+                    const overallCheapestFlag = (rate.id === overallCheapest.id) || 
+                        (parseFloat(rate.price) === parseFloat(overallCheapest.price) && 
+                         rate.carrier === overallCheapest.carrier && 
+                         rate.service === overallCheapest.service);
+                    // ✅ Default checked: Always select the overall cheapest rate (lowest price)
+                    const checked = overallCheapestFlag ? 'checked' : '';
                     html += `
                         <label class="list-group-item list-group-item-action carrier-group-item d-flex justify-content-between align-items-center cursor-pointer">
                             <div class="d-flex align-items-start">
