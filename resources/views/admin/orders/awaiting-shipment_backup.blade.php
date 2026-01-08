@@ -805,29 +805,59 @@
                     data: null,
                     title: 'Best Rate (D)',
                     render: function(data, type, row) {
-                        let defaultCarrier = row.default_carrier || '—';
-                        let defaultService = row.default_service || '';
-                        let defaultPrice = row.default_price != null ? `$${parseFloat(row.default_price).toFixed(2)}` : '—';
-                        let defaultSource = row.default_source || '—';
-                        let shippingRateFetched = row.shipping_rate_fetched !== undefined ? row.shipping_rate_fetched : (row.shipping_rate_fetched === 0 ? 0 : 1);
-                        let disabledAttr = shippingRateFetched == 0 || shippingRateFetched === false ? 'disabled' : '';
-                        let tooltipText = shippingRateFetched == 0 || shippingRateFetched === false
-                            ? 'Rates not fetched yet'
-                            : 'Change Carrier';
-                        let displayText = defaultCarrier !== '—' 
-                            ? `${defaultCarrier}${defaultService ? ' - ' + defaultService : ''} ${defaultPrice}`
-                            : '—';
+                        const orderId = row.id;
+                        const lengthD = parseFloat(row.length_d) || 0;
+                        const widthD = parseFloat(row.width_d) || 0;
+                        const heightD = parseFloat(row.height_d) || 0;
+                        const weightD = parseFloat(row.weight_d) || 0;
+                        
+                        // Check if we have cached rate for this order
+                        const cachedRate = row.best_rate_d || null;
+                        const defaultCarrier = row.default_carrier || '—';
+                        const defaultService = row.default_service || '';
+                        const defaultPrice = row.default_price != null ? `$${parseFloat(row.default_price).toFixed(2)}` : '—';
+                        const defaultSource = row.default_source || '—';
+                        
+                        let displayHtml = '';
+                        if (cachedRate && cachedRate.carrier) {
+                            displayHtml = `
+                                <span>${cachedRate.carrier}${cachedRate.service ? ' - ' + cachedRate.service : ''} $${parseFloat(cachedRate.price || 0).toFixed(2)}</span>
+                            `;
+                        } else if (defaultCarrier !== '—') {
+                            displayHtml = `
+                                <span>${defaultCarrier}${defaultService ? ' - ' + defaultService : ''} ${defaultPrice}
+                                    ${defaultSource !== '—' ? `<small class="text-muted">(${defaultSource})</small>` : ''}
+                                </span>
+                            `;
+                        } else {
+                            displayHtml = '<span class="text-muted">—</span>';
+                        }
+                        
                         return `
-                            <span>${displayText}
-                                ${defaultSource !== '—' ? `<small class="text-muted">(${defaultSource})</small>` : ''}
-                            </span>
-                            <button
-                                class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
-                                data-order='${JSON.stringify(row).replace(/'/g,"&apos;")}'
-                                title="${tooltipText}"
-                                ${disabledAttr}>
-                                <i class="bi bi-pencil-square"></i>
-                            </button>
+                            <div class="best-rate-d-container" data-order-id="${orderId}">
+                                ${displayHtml}
+                                <button
+                                    class="btn btn-sm btn-link text-primary ms-2 fetch-rate-d-btn"
+                                    data-order-id="${orderId}"
+                                    data-length="${lengthD}"
+                                    data-width="${widthD}"
+                                    data-height="${heightD}"
+                                    data-weight="${weightD}"
+                                    data-ship-to-zip="${row.ship_postal_code || ''}"
+                                    data-ship-to-state="${row.ship_state || ''}"
+                                    data-ship-to-city="${row.ship_city || ''}"
+                                    data-ship-to-country="${row.ship_country || 'US'}"
+                                    title="Fetch Best Rate (D)"
+                                    ${(lengthD === 0 || widthD === 0 || heightD === 0 || weightD === 0) ? 'disabled' : ''}>
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                <button
+                                    class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
+                                    data-order='${JSON.stringify(row).replace(/'/g,"&apos;")}'
+                                    title="Change Carrier">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                            </div>
                         `;
                     },
                     orderable: false,
@@ -2588,6 +2618,135 @@
                     data-width="${width}"
                     data-height="${height}"
                     data-weight="${weight}"
+                    data-ship-to-zip="${shipToZip}"
+                    data-ship-to-state="${shipToState}"
+                    data-ship-to-city="${shipToCity}"
+                    data-ship-to-country="${shipToCountry}"
+                    title="Retry">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            `);
+        }
+    });
+});
+        $(document).on('click', '.fetch-rate-d-btn', function() {
+    const $btn = $(this);
+    const orderId = $btn.data('order-id');
+    const lengthD = parseFloat($btn.data('length')) || 0;
+    const widthD = parseFloat($btn.data('width')) || 0;
+    const heightD = parseFloat($btn.data('height')) || 0;
+    const weightD = parseFloat($btn.data('weight')) || 0;
+    const shipToZip = $btn.data('ship-to-zip') || '';
+    const shipToState = $btn.data('ship-to-state') || '';
+    const shipToCity = $btn.data('ship-to-city') || '';
+    const shipToCountry = $btn.data('ship-to-country') || 'US';
+    
+    if (lengthD === 0 || widthD === 0 || heightD === 0 || weightD === 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Missing Data',
+            text: 'Please ensure L (D), W (D), H (D), and WT (D) values are available',
+            confirmButtonText: 'OK'
+        });
+        return;
+    }
+    
+    // Disable button and show loading
+    $btn.prop('disabled', true);
+    const $container = $btn.closest('.best-rate-d-container');
+    const originalHtml = $container.html();
+    $container.html(`
+        <span class="text-muted"><i class="spinner-border spinner-border-sm"></i> Fetching rates...</span>
+    `);
+    
+    $.ajax({
+        url: '{{ route("orders.fetch-rate-d") }}',
+        type: 'POST',
+        data: {
+            order_id: orderId,
+            length: lengthD,
+            width: widthD,
+            height: heightD,
+            weight: weightD,
+            ship_to_zip: shipToZip,
+            ship_to_state: shipToState,
+            ship_to_city: shipToCity,
+            ship_to_country: shipToCountry,
+            _token: '{{ csrf_token() }}'
+        },
+        success: function(response) {
+            if (response.success && response.rate) {
+                const rate = response.rate;
+                const row = table.row(function(idx, data) {
+                    return data.id == orderId;
+                });
+                let rowData = row.length ? row.data() : null;
+                
+                $container.html(`
+                    <span>${rate.carrier}${rate.service ? ' - ' + rate.service : ''} $${parseFloat(rate.price || 0).toFixed(2)}</span>
+                    <button
+                        class="btn btn-sm btn-link text-primary ms-2 fetch-rate-d-btn"
+                        data-order-id="${orderId}"
+                        data-length="${lengthD}"
+                        data-width="${widthD}"
+                        data-height="${heightD}"
+                        data-weight="${weightD}"
+                        data-ship-to-zip="${shipToZip}"
+                        data-ship-to-state="${shipToState}"
+                        data-ship-to-city="${shipToCity}"
+                        data-ship-to-country="${shipToCountry}"
+                        title="Refresh Rate">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button
+                        class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
+                        data-order='${rowData ? JSON.stringify(rowData).replace(/'/g,"&apos;") : ''}'
+                        title="Change Carrier">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
+                `);
+                
+                // Update the row data in DataTable
+                if (row.length && rowData) {
+                    rowData.best_rate_d = rate;
+                    rowData.default_carrier = rate.carrier;
+                    rowData.default_service = rate.service;
+                    rowData.default_price = rate.price;
+                    rowData.default_source = rate.source;
+                    row.data(rowData);
+                }
+            } else {
+                $container.html(`
+                    <span class="text-danger">${response.message || 'Failed to fetch rate'}</span>
+                    <button
+                        class="btn btn-sm btn-link text-primary ms-2 fetch-rate-d-btn"
+                        data-order-id="${orderId}"
+                        data-length="${lengthD}"
+                        data-width="${widthD}"
+                        data-height="${heightD}"
+                        data-weight="${weightD}"
+                        data-ship-to-zip="${shipToZip}"
+                        data-ship-to-state="${shipToState}"
+                        data-ship-to-city="${shipToCity}"
+                        data-ship-to-country="${shipToCountry}"
+                        title="Retry">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                `);
+            }
+        },
+        error: function(xhr) {
+            console.error(xhr.responseText);
+            const errorMsg = xhr.responseJSON?.message || 'Failed to fetch rate';
+            $container.html(`
+                <span class="text-danger">${errorMsg}</span>
+                <button
+                    class="btn btn-sm btn-link text-primary ms-2 fetch-rate-d-btn"
+                    data-order-id="${orderId}"
+                    data-length="${lengthD}"
+                    data-width="${widthD}"
+                    data-height="${heightD}"
+                    data-weight="${weightD}"
                     data-ship-to-zip="${shipToZip}"
                     data-ship-to-state="${shipToState}"
                     data-ship-to-city="${shipToCity}"

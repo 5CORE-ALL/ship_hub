@@ -1626,4 +1626,112 @@ public function fetchRateO(Request $request)
     }
 }
 
+public function fetchRateD(Request $request)
+{
+    try {
+        $orderId = $request->input('order_id');
+        $length = $request->input('length', 0);
+        $width = $request->input('width', 0);
+        $height = $request->input('height', 0);
+        $weight = $request->input('weight', 0);
+        $shipToZip = $request->input('ship_to_zip', '');
+        $shipToState = $request->input('ship_to_state', '');
+        $shipToCity = $request->input('ship_to_city', '');
+        $shipToCountry = $request->input('ship_to_country', 'US');
+        
+        // Validate required fields
+        if (empty($orderId) || $length <= 0 || $width <= 0 || $height <= 0 || $weight <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Missing required D dimensions or weight (L (D), W (D), H (D), WT (D))'
+            ], 400);
+        }
+        
+        // Get order to fetch shipping address details
+        $order = Order::find($orderId);
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found'
+            ], 404);
+        }
+        
+        // Get shipper details
+        $shipper = Shipper::first();
+        if (!$shipper) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shipper information not configured'
+            ], 500);
+        }
+        
+        // Prepare parameters for rate fetching using D dimensions
+        $params = [
+            'order_id'         => $orderId,
+            'ship_to_name'     => $order->recipient_name ?? 'Recipient',
+            'ship_to_address'  => $order->ship_address1 ?? '',
+            'ship_to_address2' => $order->ship_address2 ?? '',
+            'ship_to_city'     => $shipToCity ?: ($order->ship_city ?? 'Los Angeles'),
+            'ship_to_state'    => $shipToState ?: ($order->ship_state ?? 'CA'),
+            'ship_to_zip'      => $shipToZip ?: ($order->ship_postal_code ?? '90001'),
+            'ship_to_country'  => $shipToCountry ?: ($order->ship_country ?? 'US'),
+            'ship_to_phone'    => $order->recipient_phone ?? '5551234567',
+            'receiver_suburb'  => $shipToCity ?: ($order->ship_city ?? 'Los Angeles'),
+            'receiver_postcode'=> $shipToZip ?: ($order->ship_postal_code ?? '90001'),
+            'receiver_country' => $shipToCountry ?: ($order->ship_country ?? 'US'),
+            'weight_value'     => $weight,  // WT (D)
+            'weight_unit'      => 'pound',
+            'length'           => $length,  // L (D)
+            'width'            => $width,    // W (D)
+            'height'           => $height,  // H (D)
+            'dim_unit'         => 'inch',
+            'shipper_postal'   => $shipper->postal_code ?? '90001',
+            'recipient_postal' => $shipToZip ?: ($order->ship_postal_code ?? '90001'),
+        ];
+        
+        // Use ShippingRateService to fetch rates
+        $shippingRateService = app(\App\Services\ShippingRateService::class);
+        $rateResult = $shippingRateService->getDefaultRate($params);
+        
+        if (!$rateResult['success'] || empty($rateResult['rates'])) {
+            return response()->json([
+                'success' => false,
+                'message' => $rateResult['message'] ?? 'No rates available'
+            ], 404);
+        }
+        
+        // Get the cheapest rate
+        $cheapestRate = $rateResult['rates'][0] ?? null;
+        
+        if (!$cheapestRate) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No rates found'
+            ], 404);
+        }
+        
+        return response()->json([
+            'success' => true,
+            'rate' => [
+                'carrier' => $cheapestRate['carrier'] ?? 'Unknown',
+                'service' => $cheapestRate['service'] ?? 'Unknown',
+                'price' => $cheapestRate['price'] ?? 0,
+                'source' => $cheapestRate['source'] ?? 'Unknown',
+                'currency' => $cheapestRate['currency'] ?? 'USD'
+            ]
+        ]);
+        
+    } catch (\Exception $e) {
+        Log::error('Error fetching Best Rate (D): ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
+            'request' => $request->all()
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error fetching rate: ' . $e->getMessage()
+        ], 500);
+    }
+}
+
 }

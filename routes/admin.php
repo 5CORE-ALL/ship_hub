@@ -101,6 +101,8 @@ Route::prefix('admin')->group(function () {
         ->name('orders.get-carriers');
     Route::post('/fetch-rate-o', [AwaitingShipmentOrderBackupController::class, 'fetchRateO'])
         ->name('orders.fetch-rate-o');
+    Route::post('/fetch-rate-d', [AwaitingShipmentOrderBackupController::class, 'fetchRateD'])
+        ->name('orders.fetch-rate-d');
         Route::post('/user-columns/save', [AwaitingShipmentOrderBackupController::class, 'save'])->name('user-columns.save');
         Route::get('/user-columns/load', [AwaitingShipmentOrderBackupController::class, 'load'])
      ->name('user-columns.load');
