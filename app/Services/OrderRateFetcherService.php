@@ -86,44 +86,10 @@ class OrderRateFetcherService
         // This ensures we get the latest updated values, not from join
         // For Best Rate (D), we MUST use D dimensions: length_d, width_d, height_d, and weight_d (WT (D))
         $order->load('items');
-        
-        // Calculate D dimensions (for Best Rate D)
-        $lengthD = $order->items->sum('length_d');
-        $widthD  = $order->items->sum('width_d');
-        $heightD = $order->items->sum('height_d');
-        $weightD = $order->items->sum('weight_d');
-        
-        // If D dimensions are missing or zero, fall back to regular dimensions instead of tiny defaults
-        // This prevents artificially low rates when D dimensions aren't populated
-        if ($lengthD > 0 && $widthD > 0 && $heightD > 0 && $weightD > 0) {
-            $length = $lengthD;
-            $width  = $widthD;
-            $height = $heightD;
-            $weight = $weightD;
-        } else {
-            // Fall back to regular dimensions if D dimensions are missing
-            $length = $order->items->sum('length') ?: $order->items->sum('original_length') ?: 8.0;
-            $width  = $order->items->sum('width') ?: $order->items->sum('original_width') ?: 6.0;
-            $height = $order->items->sum('height') ?: $order->items->sum('original_height') ?: 2.0;
-            $weight = $order->items->sum('weight') ?: $order->items->sum('original_weight') ?: 1.0;
-            
-            // Log when falling back to regular dimensions
-            Log::warning("Best Rate (D) using regular dimensions as fallback for order {$order->id}", [
-                'order_id' => $order->id,
-                'd_dimensions' => [
-                    'length_d' => $lengthD,
-                    'width_d' => $widthD,
-                    'height_d' => $heightD,
-                    'weight_d' => $weightD
-                ],
-                'fallback_dimensions' => [
-                    'length' => $length,
-                    'width' => $width,
-                    'height' => $height,
-                    'weight' => $weight
-                ]
-            ]);
-        }
+        $length = $order->items->sum('length_d') ?: 4.0;
+        $width  = $order->items->sum('width_d') ?: 4.0;
+        $height = $order->items->sum('height_d') ?: 7.0;
+        $weight = $order->items->sum('weight_d') ?: 0.25;
 
         $params = [
             'order_id'         => $order->id,
