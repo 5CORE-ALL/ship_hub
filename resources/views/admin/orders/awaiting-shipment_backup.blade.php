@@ -1434,7 +1434,7 @@
         }
         
         // Auto-refresh table periodically to check for new orders and fetch their rates
-        // Refresh every 30 seconds to check for new orders
+        // Refresh every 10 minutes to check for new orders
         setInterval(function() {
             // Store current scroll position
             const scrollTop = $('.dataTables_scrollBody').scrollTop();
@@ -1455,7 +1455,7 @@
                     autoFetchMissingRates();
                 }, 500);
             }, false); // false = don't reset pagination
-        }, 30000); // 30 seconds
+        }, 600000); // 10 minutes (600000 milliseconds)
         
         // Set default weight filter
         $('.weight-filter-btn[data-weight-range="all"]').addClass('active');
