@@ -226,14 +226,23 @@ class ShippingLabelService
                 if (!$selectedRate) {
                     // Check if there are any rates at all for this order
                     $availableRatesCount = OrderShippingRate::where('order_id', $orderId)->count();
+                    $availableRates = OrderShippingRate::where('order_id', $orderId)
+                        ->select('carrier', 'service', 'rate_id')
+                        ->get()
+                        ->toArray();
+                    
                     $errorMessage = $rateType === 'O' 
-                        ? "Best Rate (O) not found for this order. Available rates: {$availableRatesCount}" 
-                        : "No cheapest shipping rate found. Available rates: {$availableRatesCount}";
+                        ? "Best Rate (O) not found for this order. Available rates in database: {$availableRatesCount}. " . 
+                          ($availableRatesCount > 0 ? "Please ensure the Best Rate (O) has been fetched and matches the rate_info provided." : "No rates found. Please fetch rates first.")
+                        : "No cheapest shipping rate found. Available rates: {$availableRatesCount}. " .
+                          ($availableRatesCount > 0 ? "Please ensure rates have been fetched and a cheapest rate is marked." : "No rates found. Please fetch rates first.");
                     
                     Log::error("No rate found for order {$orderId}", [
                         'rate_type' => $rateType,
                         'available_rates_count' => $availableRatesCount,
-                        'order_id' => $orderId
+                        'available_rates' => $availableRates,
+                        'order_id' => $orderId,
+                        'rate_info_received' => $rateInfo
                     ]);
                     
                     $labels[] = [
@@ -241,7 +250,8 @@ class ShippingLabelService
                         "success" => false,
                         "message" => $errorMessage,
                         "provider" => "unknown",
-                        "source" => "unknown"
+                        "source" => "unknown",
+                        "available_rates_count" => $availableRatesCount
                     ];
                     $failedCount++;
                     continue;

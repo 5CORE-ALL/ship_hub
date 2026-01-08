@@ -101,8 +101,20 @@ class ShippingLabelController extends Controller
     Log::info('Bulk Buy Shipping started.', [
         'orders' => $orders,
         'order_ids' => $orderIds,
-        'rate_info_map' => $rateInfoMap
+        'rate_info_map' => $rateInfoMap,
+        'user_id' => Auth::user()->id ?? 1
     ]);
+    
+    // Validate that orders exist and have required data
+    $existingOrders = Order::whereIn('id', $orderIds)->pluck('id')->toArray();
+    $missingOrders = array_diff($orderIds, $existingOrders);
+    if (!empty($missingOrders)) {
+        Log::warning('Some order IDs do not exist', ['missing_order_ids' => $missingOrders]);
+        return response()->json([
+            'success' => false,
+            'message' => 'Some selected orders do not exist: ' . implode(', ', $missingOrders)
+        ], 400);
+    }
 
     if (empty($orderIds)) {
         Log::warning('No orders selected for bulk shipping.');
@@ -161,18 +173,25 @@ class ShippingLabelController extends Controller
         }
         
         // Build response message with details
+        $hasSuccess = !empty($successOrderIds);
+        $hasFailures = !empty($failedOrderIds);
+        
         $message = 'Bulk shipping processing completed.';
-        if (!empty($successOrderIds) && !empty($failedOrderIds)) {
+        if ($hasSuccess && $hasFailures) {
             $message = "Bulk shipping completed with partial success. {$result['summary']['success_count']} succeeded, {$result['summary']['failed_count']} failed.";
-        } elseif (!empty($failedOrderIds)) {
+        } elseif ($hasFailures && !$hasSuccess) {
+            // All orders failed - build detailed error message
             $errorMessages = array_map(function($detail) {
                 return "Order #{$detail['order_id']}: {$detail['message']}";
             }, $failedOrderDetails);
-            $message = "Bulk shipping failed for all orders:\n" . implode("\n", $errorMessages);
+            $message = "Bulk shipping failed for all orders:\n" . implode("\n", array_slice($errorMessages, 0, 5)); // Show first 5 errors
+            if (count($errorMessages) > 5) {
+                $message .= "\n... and " . (count($errorMessages) - 5) . " more. Check logs for details.";
+            }
         }
 
         return response()->json([
-            'success' => !empty($successOrderIds), // True if at least one succeeded
+            'success' => $hasSuccess, // Only true if at least one order succeeded
             'message' => $message,
             'labels' => $result,
             'summary' => $result['summary'] ?? [],

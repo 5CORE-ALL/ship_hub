@@ -1590,11 +1590,30 @@
                                     table.ajax.reload();
                                 });
                             } else {
+                                // Show detailed error messages if available
+                                let errorHtml = response.message || 'Failed to buy bulk Label.';
+                                
+                                if (response.failed_details && response.failed_details.length > 0) {
+                                    errorHtml += '<br><br><strong>Error Details:</strong><ul style="text-align: left; margin-top: 10px;">';
+                                    response.failed_details.forEach(function(detail) {
+                                        errorHtml += `<li>Order #${detail.order_id}: ${detail.message}</li>`;
+                                    });
+                                    errorHtml += '</ul>';
+                                }
+                                
+                                if (response.labels && response.labels.summary) {
+                                    errorHtml += `<br><br><strong>Summary:</strong><br>
+                                        Total Orders Processed: ${response.labels.summary.total_processed}<br>
+                                        Successfully Processed: ${response.labels.summary.success_count}<br>
+                                        Failed: ${response.labels.summary.failed_count}`;
+                                }
+                                
                                 Swal.fire({
                                     icon: 'error',
                                     title: 'Error',
-                                    text: response.message || 'Failed to buy bulk Label.',
-                                    confirmButtonText: 'OK'
+                                    html: errorHtml,
+                                    confirmButtonText: 'OK',
+                                    width: '600px'
                                 });
                             }
                         },
