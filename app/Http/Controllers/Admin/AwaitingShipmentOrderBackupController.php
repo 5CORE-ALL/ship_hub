@@ -54,11 +54,11 @@ class AwaitingShipmentOrderBackupController extends Controller
             }
 
             $rates = OrderShippingRate::where('order_id', $orderId)
-                ->orderBy('price', 'asc')
                 ->where('service', '!=', 'USPS Media Mail') 
                 ->where('service', '!=', 'Saver Drop Off') 
-                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%']) 
-                ->get(['id','carrier', 'service', 'price','source','is_cheapest']);
+                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+                ->orderBy('price', 'asc')  // Order by price ascending to get cheapest first
+                ->get(['id','carrier', 'service', 'price','source','is_cheapest','rate_type']);
 
             return response()->json([
                 'success' => true,
@@ -571,8 +571,11 @@ public function getAwaitingShipmentOrders(Request $request)
     $baseQuery = Order::query()
         ->join('order_items', 'orders.id', '=', 'order_items.order_id')
         ->leftJoin('order_shipping_rates', function ($join) {
+            // Join with D rates (rate_type='D') for default_carrier display
+            // This will be overridden by best_rate_d/best_rate_o from the maps below
             $join->on('orders.id', '=', 'order_shipping_rates.order_id')
-                 ->where('order_shipping_rates.is_cheapest', 1);
+                 ->where('order_shipping_rates.is_cheapest', 1)
+                 ->where('order_shipping_rates.rate_type', 'D');
         })
         ->leftJoin('dimension_data', 'order_items.sku', '=', 'dimension_data.sku')
         ->where('orders.printing_status', 0)
@@ -964,8 +967,53 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
             }
         }
 
-        // Convert to array format and add INV value and dim-wt data to each order
-        $ordersArray = $orders->map(function ($order) use ($orderInvMap, $orderDimWtMap) {
+        // Fetch best rates from database for all orders
+        // Get cheapest rates separately for D and O dimensions
+        $bestRatesDMap = [];
+        $bestRatesOMap = [];
+        if (!empty($orderIds)) {
+            // Get the cheapest rate for each order with rate_type='D' using is_cheapest flag
+            $bestRatesD = OrderShippingRate::whereIn('order_id', $orderIds)
+                ->where('rate_type', 'D')
+                ->where('is_cheapest', 1)
+                ->get(['order_id', 'carrier', 'service', 'price', 'source', 'currency'])
+                ->keyBy('order_id');
+            
+            // Get the cheapest rate for each order with rate_type='O' using is_cheapest flag
+            $bestRatesO = OrderShippingRate::whereIn('order_id', $orderIds)
+                ->where('rate_type', 'O')
+                ->where('is_cheapest', 1)
+                ->get(['order_id', 'carrier', 'service', 'price', 'source', 'currency'])
+                ->keyBy('order_id');
+            
+            // Convert to arrays for easier access
+            foreach ($bestRatesD as $orderId => $rate) {
+                if ($rate) {
+                    $bestRatesDMap[$orderId] = [
+                        'carrier' => $rate->carrier,
+                        'service' => $rate->service,
+                        'price' => $rate->price,
+                        'source' => $rate->source,
+                        'currency' => $rate->currency,
+                    ];
+                }
+            }
+            
+            foreach ($bestRatesO as $orderId => $rate) {
+                if ($rate) {
+                    $bestRatesOMap[$orderId] = [
+                        'carrier' => $rate->carrier,
+                        'service' => $rate->service,
+                        'price' => $rate->price,
+                        'source' => $rate->source,
+                        'currency' => $rate->currency,
+                    ];
+                }
+            }
+        }
+        
+        // Convert to array format and add INV value, dim-wt data, and best rates to each order
+        $ordersArray = $orders->map(function ($order) use ($orderInvMap, $orderDimWtMap, $bestRatesDMap, $bestRatesOMap) {
             // Get order ID first
             $orderId = null;
             if (is_object($order)) {
@@ -986,6 +1034,18 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                 $dimWtData = $orderDimWtMap[$orderId];
             }
             
+            // Get best rate from database for D dimensions
+            $bestRateD = null;
+            if (isset($orderId) && isset($bestRatesDMap[$orderId])) {
+                $bestRateD = $bestRatesDMap[$orderId];
+            }
+            
+            // Get best rate from database for O (regular) dimensions
+            $bestRateO = null;
+            if (isset($orderId) && isset($bestRatesOMap[$orderId])) {
+                $bestRateO = $bestRatesOMap[$orderId];
+            }
+            
             // Convert to array using json_decode/encode to preserve all properties
             if (is_object($order)) {
                 $orderArray = json_decode(json_encode($order), true);
@@ -999,6 +1059,21 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                     $orderArray['w'] = $dimWtData['w'] ?? $orderArray['width'] ?? null;
                     $orderArray['h'] = $dimWtData['h'] ?? $orderArray['height'] ?? null;
                 }
+                // Add best rates from database - these are separate for D and O dimensions
+                if ($bestRateD) {
+                    $orderArray['best_rate_d'] = $bestRateD;
+                }
+                if ($bestRateO) {
+                    $orderArray['best_rate_o'] = $bestRateO;
+                }
+                // Don't use default_carrier as fallback - it's from the join and may not be accurate
+                // Only set default_carrier if we have D rate (for backward compatibility)
+                if ($bestRateD) {
+                    $orderArray['default_carrier'] = $bestRateD['carrier'];
+                    $orderArray['default_service'] = $bestRateD['service'];
+                    $orderArray['default_price'] = $bestRateD['price'];
+                    $orderArray['default_source'] = $bestRateD['source'];
+                }
                 return $orderArray;
             } else {
                 // Already an array
@@ -1010,6 +1085,21 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                     $order['l'] = $dimWtData['l'] ?? $order['length'] ?? null;
                     $order['w'] = $dimWtData['w'] ?? $order['width'] ?? null;
                     $order['h'] = $dimWtData['h'] ?? $order['height'] ?? null;
+                }
+                // Add best rates from database - these are separate for D and O dimensions
+                if ($bestRateD) {
+                    $order['best_rate_d'] = $bestRateD;
+                }
+                if ($bestRateO) {
+                    $order['best_rate_o'] = $bestRateO;
+                }
+                // Don't use default_carrier as fallback - it's from the join and may not be accurate
+                // Only set default_carrier if we have D rate (for backward compatibility)
+                if ($bestRateD) {
+                    $order['default_carrier'] = $bestRateD['carrier'];
+                    $order['default_service'] = $bestRateD['service'];
+                    $order['default_price'] = $bestRateD['price'];
+                    $order['default_source'] = $bestRateD['source'];
                 }
                 return $order;
             }
@@ -1629,6 +1719,66 @@ public function fetchRateO(Request $request)
             ], 404);
         }
         
+        // Save all rates to database for Best Rate (O) - similar to fetchRateD
+        // Use rate_type='O' to distinguish from D rates
+        // IMPORTANT: Include rate_type in unique key to prevent overwriting D rates
+        $normalizedRates = $rateResult['rates'] ?? [];
+        foreach ($normalizedRates as $rate) {
+            OrderShippingRate::updateOrCreate(
+                [
+                    'order_id' => $orderId,
+                    'rate_id'  => $rate['rate_id'] ?? null,
+                    'service'  => $rate['service'],
+                    'carrier'  => $rate['carrier'],
+                    'rate_type' => 'O', // Mark as O (regular dimensions) - part of unique key
+                ],
+                [
+                    'source'            => $rate['source'],
+                    'price'             => $rate['price'],
+                    'currency'          => $rate['currency'],
+                    'is_cheapest'       => 0,
+                ]
+            );
+        }
+        
+        // Mark the cheapest rate as is_cheapest for rate_type='O' and update order
+        $dbCheapestRate = OrderShippingRate::where('order_id', $orderId)
+            ->where('rate_type', 'O') // Only get O rates
+            ->where('service', '!=', 'USPS Media Mail') 
+            ->where('service', '!=', 'Saver Drop Off')
+            ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+            ->orderBy('price', 'asc')
+            ->first();
+            
+        if ($dbCheapestRate) {
+            // Only reset is_cheapest for rate_type='O', not for rate_type='D'
+            OrderShippingRate::where('order_id', $orderId)
+                ->where('rate_type', 'O')
+                ->update(['is_cheapest' => 0]);
+            $dbCheapestRate->update(['is_cheapest' => 1]);
+            
+            // Update order with default rate info for Best Rate (O)
+            $order->default_rate_id = $dbCheapestRate->rate_id;
+            $order->default_carrier = $dbCheapestRate->carrier;
+            $order->default_price = $dbCheapestRate->price;
+            $order->default_currency = $dbCheapestRate->currency;
+            $order->shipping_rate_fetched = true;
+            $order->save();
+            
+            // Return the database cheapest rate (not the API rate) to ensure consistency
+            return response()->json([
+                'success' => true,
+                'rate' => [
+                    'carrier' => $dbCheapestRate->carrier ?? 'Unknown',
+                    'service' => $dbCheapestRate->service ?? 'Unknown',
+                    'price' => $dbCheapestRate->price ?? 0,
+                    'source' => $dbCheapestRate->source ?? 'Unknown',
+                    'currency' => $dbCheapestRate->currency ?? 'USD'
+                ]
+            ]);
+        }
+        
+        // Fallback to API rate if database rate not found
         return response()->json([
             'success' => true,
             'rate' => [
@@ -1743,6 +1893,8 @@ public function fetchRateD(Request $request)
         }
         
         // Save all rates to database for Best Rate (D) - similar to OrderRateFetcherService
+        // Use rate_type='D' to distinguish from O rates
+        // IMPORTANT: Include rate_type in unique key to prevent overwriting O rates
         $normalizedRates = $rateResult['rates'] ?? [];
         foreach ($normalizedRates as $rate) {
             OrderShippingRate::updateOrCreate(
@@ -1751,6 +1903,7 @@ public function fetchRateD(Request $request)
                     'rate_id'  => $rate['rate_id'] ?? null,
                     'service'  => $rate['service'],
                     'carrier'  => $rate['carrier'],
+                    'rate_type' => 'D', // Mark as D (D dimensions) - part of unique key
                 ],
                 [
                     'source'            => $rate['source'],
@@ -1761,8 +1914,9 @@ public function fetchRateD(Request $request)
             );
         }
         
-        // Mark the cheapest rate as is_cheapest and update order
+        // Mark the cheapest rate as is_cheapest for rate_type='D' and update order
         $dbCheapestRate = OrderShippingRate::where('order_id', $orderId)
+            ->where('rate_type', 'D') // Only get D rates
             ->where('service', '!=', 'USPS Media Mail') 
             ->where('service', '!=', 'Saver Drop Off')
             ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
@@ -1770,7 +1924,10 @@ public function fetchRateD(Request $request)
             ->first();
             
         if ($dbCheapestRate) {
-            OrderShippingRate::where('order_id', $orderId)->update(['is_cheapest' => 0]);
+            // Reset is_cheapest only for rate_type='D'
+            OrderShippingRate::where('order_id', $orderId)
+                ->where('rate_type', 'D')
+                ->update(['is_cheapest' => 0]);
             $dbCheapestRate->update(['is_cheapest' => 1]);
             
             // Update order with default rate info
@@ -1780,8 +1937,21 @@ public function fetchRateD(Request $request)
             $order->default_currency = $dbCheapestRate->currency;
             $order->shipping_rate_fetched = true;
             $order->save();
+            
+            // Return the database cheapest rate (not the API rate) to ensure consistency
+            return response()->json([
+                'success' => true,
+                'rate' => [
+                    'carrier' => $dbCheapestRate->carrier ?? 'Unknown',
+                    'service' => $dbCheapestRate->service ?? 'Unknown',
+                    'price' => $dbCheapestRate->price ?? 0,
+                    'source' => $dbCheapestRate->source ?? 'Unknown',
+                    'currency' => $dbCheapestRate->currency ?? 'USD'
+                ]
+            ]);
         }
         
+        // Fallback to API rate if database rate not found
         return response()->json([
             'success' => true,
             'rate' => [

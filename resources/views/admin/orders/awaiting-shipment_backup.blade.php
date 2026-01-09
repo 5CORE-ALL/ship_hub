@@ -811,25 +811,17 @@
                         const heightD = parseFloat(row.height_d) || 0;
                         const weightD = parseFloat(row.weight_d) || 0;
                         
-                        // Check if we have cached rate for this order
+                        // Check if we have cached rate for this order (Best Rate D)
                         const cachedRate = row.best_rate_d || null;
-                        const defaultCarrier = row.default_carrier || '—';
-                        const defaultService = row.default_service || '';
-                        const defaultPrice = row.default_price != null ? `$${parseFloat(row.default_price).toFixed(2)}` : '—';
-                        const defaultSource = row.default_source || '—';
                         
                         let displayHtml = '';
                         if (cachedRate && cachedRate.carrier) {
+                            // Use best_rate_d from database (rate_type='D')
                             displayHtml = `
                                 <span>${cachedRate.carrier}${cachedRate.service ? ' - ' + cachedRate.service : ''} $${parseFloat(cachedRate.price || 0).toFixed(2)}</span>
                             `;
-                        } else if (defaultCarrier !== '—') {
-                            displayHtml = `
-                                <span>${defaultCarrier}${defaultService ? ' - ' + defaultService : ''} ${defaultPrice}
-                                    ${defaultSource !== '—' ? `<small class="text-muted">(${defaultSource})</small>` : ''}
-                                </span>
-                            `;
                         } else {
+                            // No rate fetched yet for D dimensions
                             displayHtml = '<span class="text-muted">—</span>';
                         }
                         
@@ -919,27 +911,17 @@
                         const quantity = parseFloat(row.quantity) || 0;
                         const wt_act_s = wt_act * quantity;
                         
-                        // Check if we have cached rate for this order
+                        // Check if we have cached rate for this order (Best Rate O)
                         const cachedRate = row.best_rate_o || null;
-                        // Also check for default/cheapest rate from database
-                        const defaultCarrier = row.default_carrier || '—';
-                        const defaultService = row.default_service || '';
-                        const defaultPrice = row.default_price != null ? `$${parseFloat(row.default_price).toFixed(2)}` : '—';
-                        const defaultSource = row.default_source || '—';
                         
                         let displayHtml = '';
                         if (cachedRate && cachedRate.carrier) {
+                            // Use best_rate_o from database (rate_type='O')
                             displayHtml = `
                                 <span>${cachedRate.carrier}${cachedRate.service ? ' - ' + cachedRate.service : ''} $${parseFloat(cachedRate.price || 0).toFixed(2)}</span>
                             `;
-                        } else if (defaultCarrier !== '—') {
-                            // Show default/cheapest rate from database if no cached rate
-                            displayHtml = `
-                                <span>${defaultCarrier}${defaultService ? ' - ' + defaultService : ''} ${defaultPrice}
-                                    ${defaultSource !== '—' ? `<small class="text-muted">(${defaultSource})</small>` : ''}
-                                </span>
-                            `;
                         } else {
+                            // No rate fetched yet for O (regular) dimensions
                             displayHtml = '<span class="text-muted">—</span>';
                         }
                         
@@ -1277,8 +1259,8 @@
                 // Sync column widths between header and body
                 syncColumnWidths();
                 
-                // Automatically fetch rates for orders that don't have them
-                autoFetchMissingRates();
+                // Best rates are now loaded from database, no need to auto-fetch
+                // autoFetchMissingRates(); // Removed - rates are loaded from database
             },
             initComplete: function() {
                 // Sync column widths on initialization
@@ -1433,14 +1415,14 @@
             });
         }
         
-        // Auto-refresh table periodically to check for new orders and fetch their rates
-        // Refresh every 10 minutes to check for new orders
+        // Auto-refresh table periodically to check for new orders
+        // Refresh every 10 minutes to check for new orders (rates are loaded from database, no need to auto-fetch)
         setInterval(function() {
             // Store current scroll position
             const scrollTop = $('.dataTables_scrollBody').scrollTop();
             const currentPage = table.page.info().page;
             
-            // Reload the table to get new orders
+            // Reload the table to get new orders and best rates from database
             table.ajax.reload(function(json) {
                 // Restore scroll position
                 setTimeout(function() {
@@ -1449,11 +1431,7 @@
                         table.page(currentPage).draw(false);
                     }
                 }, 100);
-                
-                // Auto-fetch missing rates after reload
-                setTimeout(function() {
-                    autoFetchMissingRates();
-                }, 500);
+                // Best rates are now loaded from database, no need to auto-fetch
             }, false); // false = don't reset pagination
         }, 600000); // 10 minutes (600000 milliseconds)
         
@@ -2854,16 +2832,7 @@
                 const row = table.row(function(idx, data) {
                     return data.id == orderId;
                 });
-                let rowData = row.length ? row.data() : null;
-                if (row.length && rowData) {
-                    rowData.best_rate_o = rate;
-                    rowData.default_carrier = rate.carrier;
-                    rowData.default_service = rate.service;
-                    rowData.default_price = rate.price;
-                    rowData.default_source = rate.source;
-                    row.data(rowData);
-                }
-                
+                // Update container immediately with fetched rate
                 $container.html(`
                     <span>${rate.carrier}${rate.service ? ' - ' + rate.service : ''} $${parseFloat(rate.price || 0).toFixed(2)}</span>
                     <button
@@ -2887,6 +2856,14 @@
                         <i class="bi bi-pencil-square"></i>
                     </button>
                 `);
+                
+                // Reload the table from server to get fresh data with correct best_rate_d and best_rate_o
+                // This ensures both columns show the correct rates from database with proper rate_type separation
+                setTimeout(function() {
+                    // Reload entire table to get fresh data from server
+                    // This ensures best_rate_d and best_rate_o are loaded separately from database
+                    table.ajax.reload(null, false);
+                }, 500); // Small delay to ensure database is updated
                 
                 // Enable the checkbox for Best Rate (O) if conditions are met
                     
@@ -3011,6 +2988,14 @@
                 });
                 let rowData = row.length ? row.data() : null;
                 
+                // Update only best_rate_d, don't touch best_rate_o or default_carrier
+                if (row.length && rowData) {
+                    rowData.best_rate_d = rate;
+                    // Don't update default_carrier - keep it separate from best_rate_d
+                    row.data(rowData);
+                }
+                
+                // Update the container display
                 $container.html(`
                     <span>${rate.carrier}${rate.service ? ' - ' + rate.service : ''} $${parseFloat(rate.price || 0).toFixed(2)}</span>
                     <button
@@ -3035,15 +3020,13 @@
                     </button>
                 `);
                 
-                // Update the row data in DataTable
-                if (row.length && rowData) {
-                    rowData.best_rate_d = rate;
-                    rowData.default_carrier = rate.carrier;
-                    rowData.default_service = rate.service;
-                    rowData.default_price = rate.price;
-                    rowData.default_source = rate.source;
-                    row.data(rowData);
-                }
+                // Reload the row from server to get fresh data with correct best_rate_d and best_rate_o
+                // This ensures both columns show the correct rates from database
+                setTimeout(function() {
+                    // Reload the entire table to get fresh data from server
+                    // This ensures best_rate_d and best_rate_o are loaded separately from database
+                    table.ajax.reload(null, false);
+                }, 500); // Small delay to ensure database is updated
             } else {
                 $container.html(`
                     <span class="text-danger">${response.message || 'Failed to fetch rate'}</span>

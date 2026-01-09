@@ -12,6 +12,7 @@ class OrderShippingRate extends Model
     protected $fillable = [
         'order_id',
         'rate_id',
+        'rate_type',
         'source',
         'carrier',
         'service',
