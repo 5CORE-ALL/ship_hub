@@ -544,7 +544,7 @@ public function buyLabel(Request $request)
                                 $order->marketplace,
                                 $order->store_id,
                                 $order->order_number,
-                                $result['tracking_number'] ?? null
+                                $label['trackingNumber'] ?? null
                             );
                         } catch (\Exception $e) {
                             Log::warning("⚠️ Failed to update {$order->marketplace} order fulfillment", [
