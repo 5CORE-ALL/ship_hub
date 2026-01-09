@@ -44,6 +44,7 @@ class AwaitingShipmentOrderBackupController extends Controller
     {
         try {
             $orderId = $request->input('order_id');
+            $rateType = $request->input('rate_type'); // 'D' or 'O' or null for all
             
             if (!$orderId) {
                 return response()->json([
@@ -53,12 +54,40 @@ class AwaitingShipmentOrderBackupController extends Controller
                 ], 400);
             }
 
-            $rates = OrderShippingRate::where('order_id', $orderId)
+            // Get rates for the order, filtered by rate_type if provided
+            // If rate_type is 'D', show only D rates
+            // If rate_type is 'O', show O rates and NULL (for backward compatibility)
+            // If rate_type is null, show all rates (for backward compatibility)
+            $query = OrderShippingRate::where('order_id', $orderId)
                 ->where('service', '!=', 'USPS Media Mail') 
                 ->where('service', '!=', 'Saver Drop Off') 
-                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
-                ->orderBy('price', 'asc')  // Order by price ascending to get cheapest first
-                ->get(['id','carrier', 'service', 'price','source','is_cheapest','rate_type']);
+                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%']);
+            
+            // Filter by rate_type if provided
+            if ($rateType === 'D') {
+                $query->where('rate_type', 'D');
+            } elseif ($rateType === 'O') {
+                // For O, include both 'O' and NULL for backward compatibility
+                $query->where(function($q) {
+                    $q->where('rate_type', 'O')
+                      ->orWhereNull('rate_type');
+                });
+            }
+            // If rateType is null, show all rates (no additional filter)
+            
+            $rates = $query->get(['id','carrier', 'service', 'price','source','is_cheapest','rate_type']);
+            
+            // Sort in PHP to ensure proper numeric comparison
+            // This ensures the modal shows rates in the same order as the cheapest selection logic
+            $rates = $rates->sort(function($a, $b) {
+                $priceA = (float) $a->price;
+                $priceB = (float) $b->price;
+                if ($priceA != $priceB) {
+                    return $priceA <=> $priceB; // Compare prices (same logic as cheapest selection)
+                }
+                // If prices are equal, sort by carrier name (same logic as cheapest selection)
+                return strcasecmp($a->carrier ?? '', $b->carrier ?? '');
+            })->values();
 
             return response()->json([
                 'success' => true,
@@ -979,9 +1008,12 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                 ->get(['order_id', 'carrier', 'service', 'price', 'source', 'currency'])
                 ->keyBy('order_id');
             
-            // Get the cheapest rate for each order with rate_type='O' using is_cheapest flag
+            // Get the cheapest rate for each order with rate_type='O' (or NULL for backward compatibility) using is_cheapest flag
             $bestRatesO = OrderShippingRate::whereIn('order_id', $orderIds)
-                ->where('rate_type', 'O')
+                ->where(function($query) {
+                    $query->where('rate_type', 'O')
+                          ->orWhereNull('rate_type');
+                })
                 ->where('is_cheapest', 1)
                 ->get(['order_id', 'carrier', 'service', 'price', 'source', 'currency'])
                 ->keyBy('order_id');
@@ -1723,39 +1755,120 @@ public function fetchRateO(Request $request)
         // Use rate_type='O' to distinguish from D rates
         // IMPORTANT: Include rate_type in unique key to prevent overwriting D rates
         $normalizedRates = $rateResult['rates'] ?? [];
+        $savedCount = 0;
         foreach ($normalizedRates as $rate) {
-            OrderShippingRate::updateOrCreate(
-                [
+            try {
+                // Ensure price is properly cast to float/decimal
+                $price = is_numeric($rate['price']) ? (float) $rate['price'] : 0;
+                
+                // Build the unique key - include source to prevent overwriting rates from different sources
+                // This is critical because same carrier/service can have different prices from different sources
+                $uniqueKey = [
                     'order_id' => $orderId,
-                    'rate_id'  => $rate['rate_id'] ?? null,
                     'service'  => $rate['service'],
                     'carrier'  => $rate['carrier'],
+                    'source'   => $rate['source'], // Include source to distinguish rates from different APIs
                     'rate_type' => 'O', // Mark as O (regular dimensions) - part of unique key
-                ],
-                [
-                    'source'            => $rate['source'],
-                    'price'             => $rate['price'],
-                    'currency'          => $rate['currency'],
-                    'is_cheapest'       => 0,
-                ]
-            );
+                ];
+                
+                // Include rate_id if available, but don't rely on it alone for uniqueness
+                if (!empty($rate['rate_id'])) {
+                    $uniqueKey['rate_id'] = $rate['rate_id'];
+                } else {
+                    $uniqueKey['rate_id'] = null;
+                }
+                
+                OrderShippingRate::updateOrCreate(
+                    $uniqueKey,
+                    [
+                        'price'             => $price, // Ensure proper decimal value
+                        'currency'          => $rate['currency'],
+                        'is_cheapest'       => 0,
+                    ]
+                );
+                $savedCount++;
+            } catch (\Exception $e) {
+                Log::error("Error saving rate for order {$orderId} (O)", [
+                    'rate' => $rate,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
         }
         
+        Log::info("Saved {$savedCount} rates for order {$orderId} (rate_type=O)", [
+            'total_rates' => count($normalizedRates),
+            'saved_count' => $savedCount
+        ]);
+        
         // Mark the cheapest rate as is_cheapest for rate_type='O' and update order
-        $dbCheapestRate = OrderShippingRate::where('order_id', $orderId)
-            ->where('rate_type', 'O') // Only get O rates
+        // IMPORTANT: Compare against ALL eligible rates in database (not just newly saved ones)
+        // This ensures we select the absolute cheapest rate, even if it was saved in a previous fetch
+        // Include both 'O' and NULL rate_type for backward compatibility
+        $eligibleRates = OrderShippingRate::where('order_id', $orderId)
+            ->where(function($query) {
+                $query->where('rate_type', 'O')
+                      ->orWhereNull('rate_type'); // Include NULL for backward compatibility
+            })
             ->where('service', '!=', 'USPS Media Mail') 
             ->where('service', '!=', 'Saver Drop Off')
             ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
-            ->orderBy('price', 'asc')
-            ->first();
+            ->get();
+        
+        // Find the absolute cheapest rate by comparing prices as decimals
+        // Use the EXACT same sorting logic as getCarriers to ensure consistency
+        $dbCheapestRate = $eligibleRates->sort(function($a, $b) {
+            $priceA = (float) $a->price;
+            $priceB = (float) $b->price;
+            if ($priceA != $priceB) {
+                return $priceA <=> $priceB; // Compare prices (same as getCarriers)
+            }
+            // If prices are equal, sort by carrier name (same as getCarriers)
+            return strcasecmp($a->carrier ?? '', $b->carrier ?? '');
+        })->first();
+        
+        // Log for debugging - show all rates and which one was selected
+        if ($eligibleRates->isNotEmpty()) {
+            $sortedForLog = $eligibleRates->sort(function($a, $b) {
+                return ((float)$a->price) <=> ((float)$b->price);
+            });
+            
+            Log::info("Best Rate (O) selection for order {$orderId}", [
+                'total_rates' => $eligibleRates->count(),
+                'cheapest_rate' => $dbCheapestRate ? [
+                    'id' => $dbCheapestRate->id,
+                    'carrier' => $dbCheapestRate->carrier,
+                    'service' => $dbCheapestRate->service,
+                    'price' => (float)$dbCheapestRate->price,
+                    'source' => $dbCheapestRate->source,
+                ] : null,
+                'top_5_cheapest' => $sortedForLog->take(5)->map(function($r) {
+                    return [
+                        'id' => $r->id,
+                        'carrier' => $r->carrier,
+                        'service' => $r->service,
+                        'price' => (float)$r->price,
+                        'source' => $r->source,
+                        'is_cheapest' => $r->is_cheapest
+                    ];
+                })->values()->toArray()
+            ]);
+        }
             
         if ($dbCheapestRate) {
-            // Only reset is_cheapest for rate_type='O', not for rate_type='D'
+            // Only reset is_cheapest for rate_type='O' (or NULL), not for rate_type='D'
             OrderShippingRate::where('order_id', $orderId)
-                ->where('rate_type', 'O')
+                ->where(function($query) {
+                    $query->where('rate_type', 'O')
+                          ->orWhereNull('rate_type');
+                })
                 ->update(['is_cheapest' => 0]);
             $dbCheapestRate->update(['is_cheapest' => 1]);
+            
+            // Update rate_type to 'O' if it's NULL (for backward compatibility)
+            if (is_null($dbCheapestRate->rate_type)) {
+                $dbCheapestRate->update(['rate_type' => 'O']);
+            }
             
             // Update order with default rate info for Best Rate (O)
             $order->default_rate_id = $dbCheapestRate->rate_id;
@@ -1896,32 +2009,102 @@ public function fetchRateD(Request $request)
         // Use rate_type='D' to distinguish from O rates
         // IMPORTANT: Include rate_type in unique key to prevent overwriting O rates
         $normalizedRates = $rateResult['rates'] ?? [];
+        $savedCount = 0;
         foreach ($normalizedRates as $rate) {
-            OrderShippingRate::updateOrCreate(
-                [
+            try {
+                // Ensure price is properly cast to float/decimal
+                $price = is_numeric($rate['price']) ? (float) $rate['price'] : 0;
+                
+                // Build the unique key - include source to prevent overwriting rates from different sources
+                // This is critical because same carrier/service can have different prices from different sources
+                $uniqueKey = [
                     'order_id' => $orderId,
-                    'rate_id'  => $rate['rate_id'] ?? null,
                     'service'  => $rate['service'],
                     'carrier'  => $rate['carrier'],
+                    'source'   => $rate['source'], // Include source to distinguish rates from different APIs
                     'rate_type' => 'D', // Mark as D (D dimensions) - part of unique key
-                ],
-                [
-                    'source'            => $rate['source'],
-                    'price'             => $rate['price'],
-                    'currency'          => $rate['currency'],
-                    'is_cheapest'       => 0,
-                ]
-            );
+                ];
+                
+                // Include rate_id if available, but don't rely on it alone for uniqueness
+                if (!empty($rate['rate_id'])) {
+                    $uniqueKey['rate_id'] = $rate['rate_id'];
+                } else {
+                    $uniqueKey['rate_id'] = null;
+                }
+                
+                OrderShippingRate::updateOrCreate(
+                    $uniqueKey,
+                    [
+                        'price'             => $price, // Ensure proper decimal value
+                        'currency'          => $rate['currency'],
+                        'is_cheapest'       => 0,
+                    ]
+                );
+                $savedCount++;
+            } catch (\Exception $e) {
+                Log::error("Error saving rate for order {$orderId} (D)", [
+                    'rate' => $rate,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
         }
         
+        Log::info("Saved {$savedCount} rates for order {$orderId} (rate_type=D)", [
+            'total_rates' => count($normalizedRates),
+            'saved_count' => $savedCount
+        ]);
+        
         // Mark the cheapest rate as is_cheapest for rate_type='D' and update order
-        $dbCheapestRate = OrderShippingRate::where('order_id', $orderId)
+        // IMPORTANT: Compare against ALL eligible rates in database (not just newly saved ones)
+        // This ensures we select the absolute cheapest rate, even if it was saved in a previous fetch
+        // Only get D rates (don't include NULL here, as D rates should be separate from O rates)
+        $eligibleRates = OrderShippingRate::where('order_id', $orderId)
             ->where('rate_type', 'D') // Only get D rates
             ->where('service', '!=', 'USPS Media Mail') 
             ->where('service', '!=', 'Saver Drop Off')
             ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
-            ->orderBy('price', 'asc')
-            ->first();
+            ->get();
+        
+        // Find the absolute cheapest rate by comparing prices as decimals
+        // Use the EXACT same sorting logic as getCarriers to ensure consistency
+        $dbCheapestRate = $eligibleRates->sort(function($a, $b) {
+            $priceA = (float) $a->price;
+            $priceB = (float) $b->price;
+            if ($priceA != $priceB) {
+                return $priceA <=> $priceB; // Compare prices (same as getCarriers)
+            }
+            // If prices are equal, sort by carrier name (same as getCarriers)
+            return strcasecmp($a->carrier ?? '', $b->carrier ?? '');
+        })->first();
+        
+        // Log for debugging - show all rates and which one was selected
+        if ($eligibleRates->isNotEmpty()) {
+            $sortedForLog = $eligibleRates->sort(function($a, $b) {
+                return ((float)$a->price) <=> ((float)$b->price);
+            });
+            
+            Log::info("Best Rate (D) selection for order {$orderId}", [
+                'total_rates' => $eligibleRates->count(),
+                'cheapest_rate' => $dbCheapestRate ? [
+                    'id' => $dbCheapestRate->id,
+                    'carrier' => $dbCheapestRate->carrier,
+                    'service' => $dbCheapestRate->service,
+                    'price' => (float)$dbCheapestRate->price,
+                    'source' => $dbCheapestRate->source,
+                ] : null,
+                'top_5_cheapest' => $sortedForLog->take(5)->map(function($r) {
+                    return [
+                        'id' => $r->id,
+                        'carrier' => $r->carrier,
+                        'service' => $r->service,
+                        'price' => (float)$r->price,
+                        'source' => $r->source,
+                        'is_cheapest' => $r->is_cheapest
+                    ];
+                })->values()->toArray()
+            ]);
+        }
             
         if ($dbCheapestRate) {
             // Reset is_cheapest only for rate_type='D'

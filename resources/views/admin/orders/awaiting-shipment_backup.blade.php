@@ -846,7 +846,8 @@
                                 <button
                                     class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                                     data-order-id="${orderId}"
-                                    title="Change Carrier">
+                                    data-rate-type="D"
+                                    title="Change Carrier (D)">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                             </div>
@@ -946,7 +947,8 @@
                                 <button
                                     class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                                     data-order-id="${orderId}"
-                                    title="Change Carrier">
+                                    data-rate-type="O"
+                                    title="Change Carrier (O)">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                             </div>
@@ -2549,8 +2551,9 @@
     });
 });
         $(document).on('click', '.edit-carrier-btn', function () {
-    // Get order ID directly from data attribute or from table row
+    // Get order ID and rate_type directly from data attributes
     let orderId = $(this).data('order-id');
+    let rateType = $(this).data('rate-type'); // 'D' or 'O'
     
     // If not found, try to get from the table row
     if (!orderId) {
@@ -2561,6 +2564,21 @@
                 orderId = rowData?.id;
             } catch (e) {
                 console.error('Error getting row data:', e);
+            }
+        }
+    }
+    
+    // If rate_type not found, try to determine from which column the button was clicked
+    if (!rateType) {
+        const $row = $(this).closest('tr');
+        if ($row.length) {
+            const $cell = $(this).closest('td');
+            const columnIndex = $cell.index();
+            // Try to determine from column position or class
+            if ($(this).closest('.best-rate-d-container').length) {
+                rateType = 'D';
+            } else if ($(this).closest('.best-rate-o-container').length) {
+                rateType = 'O';
             }
         }
     }
@@ -2578,7 +2596,7 @@
     $('#carrierList').html(`
         <div class="d-flex flex-column align-items-center justify-content-center py-5 text-muted">
             <div class="spinner-border text-primary mb-3" role="status"></div>
-            <small>Fetching best carrier options...</small>
+            <small>Fetching best carrier options${rateType ? ' (' + rateType + ')' : ''}...</small>
         </div>
     `);
     $('#changeCarrierModal').modal('show');
@@ -2589,6 +2607,7 @@
         timeout: 30000, // 30 second timeout
         data: {
             order_id: orderId,
+            rate_type: rateType || null, // Pass rate_type to filter rates
             _token: '{{ csrf_token() }}'
         },
         success: function (response) {
@@ -2852,7 +2871,8 @@
                     <button
                         class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                         data-order-id="${orderId}"
-                        title="Change Carrier">
+                        data-rate-type="O"
+                        title="Change Carrier (O)">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                 `);
@@ -3015,7 +3035,8 @@
                     <button
                         class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                         data-order-id="${orderId}"
-                        title="Change Carrier">
+                        data-rate-type="D"
+                        title="Change Carrier (D)">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                 `);
