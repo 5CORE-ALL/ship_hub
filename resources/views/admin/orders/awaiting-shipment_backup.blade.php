@@ -709,17 +709,14 @@
                         let icon = row.marked_as_ship == 1 ? '<i class="bi bi-check-lg"></i>' : '<i class="bi bi-box-seam"></i>';
                         let btnClass = row.marked_as_ship == 1 ? 'btn-success' : 'btn-primary';
                         return `
-                            <div class="d-flex align-items-center justify-content-center gap-2">
-                                <span class="copy-order-number" 
-                                      data-order-number="${data || ''}"
-                                      style="cursor: pointer; color: #0d6efd; text-decoration: underline; user-select: none;"
-                                      title="Click to copy order number">${data || '—'}</span>
+                            <span title="${data}" style="display: inline-flex; align-items: center; gap: 8px;">
+                                <span class="order-number-text">${data || ''}</span>
                                 <button class="btn btn-xs mark-as-shipped-btn"
                                         data-id="${row.id}" data-order-number="${row.order_number}" data-marked="${row.marked_as_ship}"
                                         title="${data} - ${row.marked_as_ship == 1 ? 'Shipped' : 'Mark as Shipped'}">
                                     ${icon}
                                 </button>
-                            </div>
+                            </span>
                         `;
                     },
                     className: 'text-center',
@@ -2553,87 +2550,6 @@
             });
         }
     });
-    
-    // Copy order number to clipboard
-    $(document).on('click', '.copy-order-number', function(e) {
-        e.stopPropagation(); // Prevent event bubbling
-        const orderNumber = $(this).data('order-number');
-        
-        if (!orderNumber) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'No Order Number',
-                text: 'Order number is not available.',
-                confirmButtonText: 'OK',
-                timer: 2000
-            });
-            return;
-        }
-        
-        // Copy to clipboard
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(orderNumber).then(function() {
-                Swal.fire({
-                    icon: 'success',
-                    title: 'Copied!',
-                    text: `Order number "${orderNumber}" copied to clipboard.`,
-                    confirmButtonText: 'OK',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            }).catch(function(err) {
-                console.error('Failed to copy: ', err);
-                // Fallback for older browsers
-                fallbackCopyTextToClipboard(orderNumber);
-            });
-        } else {
-            // Fallback for older browsers
-            fallbackCopyTextToClipboard(orderNumber);
-        }
-    });
-    
-    // Fallback function for copying to clipboard in older browsers
-    function fallbackCopyTextToClipboard(text) {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.top = "0";
-        textArea.style.left = "0";
-        textArea.style.position = "fixed";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        
-        try {
-            const successful = document.execCommand('copy');
-            if (successful) {
-                Swal.fire({
-                    icon: 'success',
-                    title: 'Copied!',
-                    text: `Order number "${text}" copied to clipboard.`,
-                    confirmButtonText: 'OK',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            } else {
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Failed',
-                    text: 'Failed to copy order number to clipboard.',
-                    confirmButtonText: 'OK'
-                });
-            }
-        } catch (err) {
-            console.error('Fallback copy failed: ', err);
-            Swal.fire({
-                icon: 'error',
-                title: 'Failed',
-                text: 'Failed to copy order number to clipboard.',
-                confirmButtonText: 'OK'
-            });
-        }
-        
-        document.body.removeChild(textArea);
-    }
 });
         $(document).on('click', '.edit-carrier-btn', function () {
     // Get order ID and rate_type directly from data attributes
