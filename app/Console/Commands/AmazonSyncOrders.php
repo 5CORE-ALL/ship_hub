@@ -67,34 +67,69 @@ class AmazonSyncOrders extends Command
         $createdAfter = Carbon::now('America/New_York')->subDays(2)->toIso8601String();
         $this->info("📅 Fetching orders created after {$createdAfter}");
 
-        // Fetch orders
-        $response = Http::withHeaders([
-            'Authorization'      => 'Bearer ' . $integration->access_token,
-            'x-amz-access-token' => $integration->access_token,
-        ])->get($endpoint, [
-            'MarketplaceIds' => 'ATVPDKIKX0DER',
-            'CreatedAfter'   => $createdAfter,
-        ]);
+        // Fetch orders with pagination support
+        $allOrders = [];
+        $nextToken = null;
+        $page = 1;
+        
+        do {
+            $params = [
+                'MarketplaceIds' => 'ATVPDKIKX0DER',
+                'CreatedAfter'   => $createdAfter,
+            ];
+            
+            if ($nextToken) {
+                $params['NextToken'] = $nextToken;
+                $this->info("📄 Fetching page {$page}...");
+            }
+            
+            $response = Http::withHeaders([
+                'Authorization'      => 'Bearer ' . $integration->access_token,
+                'x-amz-access-token' => $integration->access_token,
+            ])->get($endpoint, $params);
 
-        if ($response->failed()) {
-            $this->error('❌ Failed to fetch orders: ' . $response->body());
-            Log::error('Failed to fetch Amazon orders', [
-                'response_status' => $response->status(),
-                'response_body'   => $response->body(),
+            if ($response->failed()) {
+                $this->error('❌ Failed to fetch orders: ' . $response->body());
+                Log::error('Failed to fetch Amazon orders', [
+                    'response_status' => $response->status(),
+                    'response_body'   => $response->body(),
+                    'page' => $page,
+                ]);
+                break;
+            }
+
+            $responseData = $response->json();
+            $payload = $responseData['payload'] ?? [];
+            $orders = $payload['Orders'] ?? [];
+            $nextToken = $payload['NextToken'] ?? null;
+            
+            $allOrders = array_merge($allOrders, $orders);
+            
+            $this->info("✅ Page {$page}: Found " . count($orders) . " orders (Total so far: " . count($allOrders) . ")");
+            
+            Log::info('Amazon API Response', [
+                'page' => $page,
+                'orders_on_page' => count($orders),
+                'total_orders' => count($allOrders),
+                'has_next_token' => !empty($nextToken),
             ]);
-            return 1;
-        }
+            
+            $page++;
+            
+            // Add small delay between pages to respect rate limits
+            if ($nextToken) {
+                usleep(500000); // 0.5 second delay
+            }
+            
+        } while ($nextToken);
 
-        $orders = $response->json()['payload']['Orders'] ?? [];
-        Log::info('Amazon API Response', [
-            'total_orders' => count($orders),
-            'response' => $response->json(),
-        ]);
-
-        if (empty($orders)) {
+        if (empty($allOrders)) {
             $this->info('ℹ️ No orders found.');
             return 0;
         }
+        
+        $orders = $allOrders;
+        $this->info("📦 Total orders fetched: " . count($orders));
 
         foreach ($orders as $order) {
             try {
