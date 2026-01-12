@@ -182,12 +182,26 @@ class ShippingLabelController extends Controller
         } elseif ($hasFailures && !$hasSuccess) {
             // All orders failed - build detailed error message
             $errorMessages = array_map(function($detail) {
-                return "Order #{$detail['order_id']}: {$detail['message']}";
+                $orderId = $detail['order_id'] ?? 'unknown';
+                $errorMsg = $detail['message'] ?? ($detail['error'] ?? 'Unknown error');
+                // If error is an array, try to extract meaningful message
+                if (is_array($errorMsg)) {
+                    $errorMsg = json_encode($errorMsg);
+                }
+                return "Order #{$orderId}: {$errorMsg}";
             }, $failedOrderDetails);
-            $message = "Bulk shipping failed for all orders:\n" . implode("\n", array_slice($errorMessages, 0, 5)); // Show first 5 errors
-            if (count($errorMessages) > 5) {
-                $message .= "\n... and " . (count($errorMessages) - 5) . " more. Check logs for details.";
+            
+            $message = "Bulk shipping failed for all orders.\n\n";
+            $message .= "Error Details:\n" . implode("\n", array_slice($errorMessages, 0, 10)); // Show first 10 errors
+            if (count($errorMessages) > 10) {
+                $message .= "\n... and " . (count($errorMessages) - 10) . " more. Check logs for details.";
             }
+            
+            // Add summary at the end
+            $message .= "\n\nSummary:\n";
+            $message .= "Total Orders Processed: " . ($result['summary']['total_processed'] ?? count($orderIds)) . "\n";
+            $message .= "Successfully Processed: " . ($result['summary']['success_count'] ?? 0) . "\n";
+            $message .= "Failed: " . ($result['summary']['failed_count'] ?? count($orderIds));
         }
 
         return response()->json([
