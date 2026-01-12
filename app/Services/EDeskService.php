@@ -67,41 +67,63 @@ class EDeskService
     protected function searchTicketByOrderId(string $amazonOrderId): ?array
     {
         try {
-            // Try different possible endpoints
-            $endpoints = [
-                "/api/v1/tickets/search?order_id={$amazonOrderId}",
-                "/api/v1/tickets?order_number={$amazonOrderId}",
-                "/api/v2/tickets?filter[order_id]={$amazonOrderId}",
-                "/api/tickets?q={$amazonOrderId}",
-            ];
+            // Get endpoints from config, fallback to defaults
+            $endpointPatterns = config('services.edesk.endpoints.ticket_search', [
+                "/api/v1/tickets/search?order_id={order_id}",
+                "/api/v1/tickets?order_number={order_id}",
+                "/api/v2/tickets?filter[order_id]={order_id}",
+                "/api/tickets?q={order_id}",
+            ]);
+            
+            // Replace {order_id} placeholder with actual order ID
+            $endpoints = array_map(function($pattern) use ($amazonOrderId) {
+                return str_replace('{order_id}', $amazonOrderId, $pattern);
+            }, $endpointPatterns);
 
             foreach ($endpoints as $endpoint) {
                 try {
+                    $fullUrl = $this->baseUrl . $endpoint;
                     $response = Http::timeout(10)->withHeaders([
                         'Authorization' => 'Bearer ' . $this->bearerToken,
                         'Accept' => 'application/json',
-                    ])->get($this->baseUrl . $endpoint);
+                    ])->get($fullUrl);
 
+                    $statusCode = $response->status();
+                    
                     if ($response->successful()) {
                         $data = $response->json();
                         
                         // Handle different response structures
                         if (isset($data['tickets']) && !empty($data['tickets'])) {
+                            Log::info("eDesk ticket found via endpoint: {$endpoint}");
                             return $data['tickets'][0];
                         }
                         if (isset($data['data']) && !empty($data['data'])) {
+                            Log::info("eDesk ticket found via endpoint: {$endpoint}");
                             return is_array($data['data']) && isset($data['data'][0]) ? $data['data'][0] : $data['data'];
                         }
                         if (isset($data['ticket'])) {
+                            Log::info("eDesk ticket found via endpoint: {$endpoint}");
                             return $data['ticket'];
                         }
                         if (isset($data['id'])) {
+                            Log::info("eDesk ticket found via endpoint: {$endpoint}");
                             return $data;
                         }
+                    } else {
+                        // Log failed responses with details
+                        $errorBody = $response->body();
+                        Log::debug("eDesk endpoint failed: {$endpoint}", [
+                            'status' => $statusCode,
+                            'error' => substr($errorBody, 0, 500), // Limit error message length
+                        ]);
                     }
                 } catch (\Exception $e) {
                     // Continue to next endpoint on error
-                    Log::debug("eDesk endpoint failed: {$endpoint}", ['error' => $e->getMessage()]);
+                    Log::debug("eDesk endpoint exception: {$endpoint}", [
+                        'error' => $e->getMessage(),
+                        'trace' => substr($e->getTraceAsString(), 0, 200),
+                    ]);
                     continue;
                 }
             }
@@ -126,26 +148,45 @@ class EDeskService
         }
 
         try {
-            $endpoints = [
-                "/api/v1/tickets/{$ticketId}",
-                "/api/v2/tickets/{$ticketId}",
-                "/api/tickets/{$ticketId}",
-            ];
+            // Get endpoints from config, fallback to defaults
+            $endpointPatterns = config('services.edesk.endpoints.ticket_details', [
+                "/api/v1/tickets/{ticket_id}",
+                "/api/v2/tickets/{ticket_id}",
+                "/api/tickets/{ticket_id}",
+            ]);
+            
+            // Replace {ticket_id} placeholder with actual ticket ID
+            $endpoints = array_map(function($pattern) use ($ticketId) {
+                return str_replace('{ticket_id}', $ticketId, $pattern);
+            }, $endpointPatterns);
 
             foreach ($endpoints as $endpoint) {
                 try {
+                    $fullUrl = $this->baseUrl . $endpoint;
                     $response = Http::timeout(10)->withHeaders([
                         'Authorization' => 'Bearer ' . $this->bearerToken,
                         'Accept' => 'application/json',
-                    ])->get($this->baseUrl . $endpoint);
+                    ])->get($fullUrl);
 
+                    $statusCode = $response->status();
+                    
                     if ($response->successful()) {
                         $data = $response->json();
+                        Log::info("eDesk ticket details fetched via endpoint: {$endpoint}");
                         return $this->extractCustomerDetails($data);
+                    } else {
+                        // Log failed responses
+                        $errorBody = $response->body();
+                        Log::debug("eDesk ticket details endpoint failed: {$endpoint}", [
+                            'status' => $statusCode,
+                            'error' => substr($errorBody, 0, 500),
+                        ]);
                     }
                 } catch (\Exception $e) {
                     // Continue to next endpoint on error
-                    Log::debug("eDesk endpoint failed: {$endpoint}", ['error' => $e->getMessage()]);
+                    Log::debug("eDesk ticket details endpoint exception: {$endpoint}", [
+                        'error' => $e->getMessage(),
+                    ]);
                     continue;
                 }
             }
@@ -166,26 +207,45 @@ class EDeskService
     protected function getOrderByOrderId(string $amazonOrderId): ?array
     {
         try {
-            $endpoints = [
-                "/api/v1/orders/{$amazonOrderId}",
-                "/api/v2/orders/{$amazonOrderId}",
-                "/api/orders/{$amazonOrderId}",
-            ];
+            // Get endpoints from config, fallback to defaults
+            $endpointPatterns = config('services.edesk.endpoints.order_lookup', [
+                "/api/v1/orders/{order_id}",
+                "/api/v2/orders/{order_id}",
+                "/api/orders/{order_id}",
+            ]);
+            
+            // Replace {order_id} placeholder with actual order ID
+            $endpoints = array_map(function($pattern) use ($amazonOrderId) {
+                return str_replace('{order_id}', $amazonOrderId, $pattern);
+            }, $endpointPatterns);
 
             foreach ($endpoints as $endpoint) {
                 try {
+                    $fullUrl = $this->baseUrl . $endpoint;
                     $response = Http::timeout(10)->withHeaders([
                         'Authorization' => 'Bearer ' . $this->bearerToken,
                         'Accept' => 'application/json',
-                    ])->get($this->baseUrl . $endpoint);
+                    ])->get($fullUrl);
 
+                    $statusCode = $response->status();
+                    
                     if ($response->successful()) {
                         $data = $response->json();
+                        Log::info("eDesk order found via endpoint: {$endpoint}");
                         return $data['order'] ?? $data['data'] ?? $data;
+                    } else {
+                        // Log failed responses
+                        $errorBody = $response->body();
+                        Log::debug("eDesk order endpoint failed: {$endpoint}", [
+                            'status' => $statusCode,
+                            'error' => substr($errorBody, 0, 500),
+                        ]);
                     }
                 } catch (\Exception $e) {
                     // Continue to next endpoint on error
-                    Log::debug("eDesk endpoint failed: {$endpoint}", ['error' => $e->getMessage()]);
+                    Log::debug("eDesk order endpoint exception: {$endpoint}", [
+                        'error' => $e->getMessage(),
+                    ]);
                     continue;
                 }
             }
@@ -230,7 +290,9 @@ class EDeskService
         // Extract customer name
         $customer['name'] = $customerData['name'] 
             ?? $customerData['full_name'] 
-            ?? ($customerData['first_name'] ?? '') . ' ' . ($customerData['last_name'] ?? '')
+            ?? (!empty($customerData['first_name']) || !empty($customerData['last_name']) 
+                ? trim(($customerData['first_name'] ?? '') . ' ' . ($customerData['last_name'] ?? '')) 
+                : null)
             ?? $data['recipient_name']
             ?? null;
 

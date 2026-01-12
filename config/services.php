@@ -102,6 +102,20 @@ return [
     'edesk' => [
         'bearer_token' => env('EDESK_BEARER_TOKEN'),
         'base_url'     => env('EDESK_BASE_URL', 'https://api.edesk.com'),
+        // Endpoints based on eDesk API documentation
+        // Base URL structure: https://api.edesk.com/v1/ or /v2/
+        'endpoints' => [
+            'ticket_search' => [
+                '/v1/tickets?order_id={order_id}',  // Working endpoint
+                '/v1/tickets?order_number={order_id}',
+            ],
+            'ticket_details' => [
+                '/v1/tickets/{ticket_id}',  // Working endpoint
+            ],
+            'order_lookup' => [
+                '/v1/orders/{order_id}',
+            ],
+        ],
     ],
 
 ];
