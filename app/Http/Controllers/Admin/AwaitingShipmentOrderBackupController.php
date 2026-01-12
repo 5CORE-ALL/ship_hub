@@ -437,6 +437,8 @@ public function buyLabel(Request $request)
         $height = $request->input('height', $order->cost->height ?? 7.0);
         $weight = $request->input('weight', $order->cost->wt_act ?? 0.25);
         $platform = $request->input('platform', 'shipstation');
+        $label = null;
+        
         if ($platform === 'shipstation') {
            $shipStation = new ShipStationService();
            $label = $shipStation->createLabelByRateId($request->rate_id);
@@ -447,8 +449,8 @@ public function buyLabel(Request $request)
                     'rate_id'  => $request->rate_id,
                     'response' => $label,
                 ]);
-               if (isset($label['success']) && $label['success'] === false ||
-                    isset($label['error'])) {
+               // Check if label creation failed
+               if (!isset($label['success']) || $label['success'] === false || isset($label['error'])) {
                     $errorMessage = "Label purchase failed.";
                     if (isset($label['error']['errors']) && is_array($label['error']['errors']) && isset($label['error']['errors'][0]['message'])) {
                         $errorMessage = $label['error']['errors'][0]['message'];
@@ -458,10 +460,29 @@ public function buyLabel(Request $request)
                         $errorMessage = $label['error'];
                     }
 
+                    // Mark order as failed
+                    $order->update([
+                        'label_status' => 'failed',
+                        'printing_status' => 0,
+                    ]);
+
                     return response()->json([
                         'success' => false,
                         'message' => $errorMessage
                     ]);
+                 }
+                 
+                 // Validate that label has required fields
+                 if (empty($label['label_id'])) {
+                     Log::error("ShipStation label missing label_id", ['label' => $label]);
+                     $order->update([
+                         'label_status' => 'failed',
+                         'printing_status' => 0,
+                     ]);
+                     return response()->json([
+                         'success' => false,
+                         'message' => 'Label creation succeeded but label_id is missing. Please try again.'
+                     ]);
                  }
                  } else {
                           $weightInKg = $weight * 0.453592;
@@ -523,51 +544,146 @@ public function buyLabel(Request $request)
                                 ];
                                 $sendleService = new SendleService();
                                 $label = $sendleService->createOrder($sendlePayload);
+                                 
+                                 // Check if Sendle label creation failed
                                  if (!isset($label['success']) || $label['success'] === false) {
+                                    $order->update([
+                                        'label_status' => 'failed',
+                                        'printing_status' => 0,
+                                    ]);
                                     return response()->json([
                                         'success' => false,
                                         'message' => $label['error'] ?? 'Sendle label purchase failed.'
                                     ]);
                                 }
+                                
+                                // Validate that label has required fields
+                                if (empty($label['label_id'])) {
+                                    Log::error("Sendle label missing label_id", ['label' => $label]);
+                                    $order->update([
+                                        'label_status' => 'failed',
+                                        'printing_status' => 0,
+                                    ]);
+                                    return response()->json([
+                                        'success' => false,
+                                        'message' => 'Label creation succeeded but label_id is missing. Please try again.'
+                                    ]);
+                                }
               }
 
-            $order->update([
-                'label_id'         => $label['label_id'] ?? null,
-                'tracking_number'  => $label['trackingNumber'] ?? null,
-                'label_url'        => $label['labelUrl'] ?? null,
-                'shipping_carrier' => $label['raw']['carrier_code'] ?? null, 
-                'shipping_service' => $label['raw']['service_code'] ?? null, 
-                'shipping_cost'    => $label['raw']['shipment_cost']['amount'] ?? null,
-                'ship_date'        => $label['shipDate'] ?? now(),
-                'label_status'     => isset($label['label_id']) ? 'purchased' : 'failed',
-                'label_source'=>'api',
-                'fulfillment_status' => 'shipped',
-                'order_status'       => 'Shipped',
-            ]);
+            // Validate label structure before proceeding
+            if (!$label || !isset($label['label_id']) || empty($label['label_id'])) {
+                Log::error("Invalid label structure in buyLabel", [
+                    'order_id' => $request->order_id,
+                    'label' => $label
+                ]);
+                $order->update([
+                    'label_status' => 'failed',
+                    'printing_status' => 0,
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Label creation failed: Invalid label response structure.'
+                ]);
+            }
 
-        $shipment = Shipment::create([
-            'order_id'           => $request->order_id,
-            'tracking_number'    => $label['trackingNumber'] ?? null,
-            'carrier'            => $label['raw']['carrier_code'] ?? null,
-            'label_id'           => $label['label_id'] ?? null,
-            'service_type'       => $label['raw']['service_code'] ?? null,
-            // 'package_weight'     => $label['shipment_cost']['weight'] ?? null,
-            // 'package_dimensions' => json_encode($label['package_dimensions'] ?? []),
-            'package_weight'     => $label['raw']['packages'][0]['weight']['value'] ?? null,
-            'package_dimensions' => json_encode($label['raw']['packages'][0]['dimensions'] ?? []),
-            'label_url'          => $label['labelUrl'] ?? null,
-            'shipment_status'    => 'created',
-            'label_data'         => json_encode($label),
-            'ship_date'          => now(),
-            'cost'               => $label['raw']['shipment_cost']['amount'] ?? null,
-            'currency'           => $label['raw']['shipment_cost']['currency'] ?? null,
-            'tracking_url'       => $label['raw']['tracking_url'] ?? null,
-            'label_status'        => 'active',
-            'void_status'        => 'active',
-        ]);
+            // Wrap order update and shipment creation in a transaction
+            try {
+                DB::transaction(function () use ($order, $label, $request) {
+                    // Update order first
+                    $order->update([
+                        'label_id'         => $label['label_id'] ?? null,
+                        'tracking_number'  => $label['trackingNumber'] ?? null,
+                        'label_url'        => $label['labelUrl'] ?? null,
+                        'shipping_carrier' => $label['raw']['carrier_code'] ?? null, 
+                        'shipping_service' => $label['raw']['service_code'] ?? null, 
+                        'shipping_cost'    => $label['raw']['shipment_cost']['amount'] ?? ($label['raw']['shipment_cost'] ?? null),
+                        'ship_date'        => $label['shipDate'] ?? now(),
+                        'label_status'     => 'purchased',
+                        'label_source'     => 'api',
+                        'fulfillment_status' => 'shipped',
+                        'order_status'     => 'Shipped',
+                        'printing_status'  => 1,
+                    ]);
 
+                    // Safely extract package weight and dimensions
+                    $packageWeight = null;
+                    $packageDimensions = [];
+                    
+                    if (isset($label['raw']['packages']) && is_array($label['raw']['packages']) && !empty($label['raw']['packages'][0])) {
+                        $package = $label['raw']['packages'][0];
+                        if (isset($package['weight'])) {
+                            $packageWeight = is_array($package['weight']) ? ($package['weight']['value'] ?? null) : $package['weight'];
+                        }
+                        if (isset($package['dimensions'])) {
+                            $packageDimensions = $package['dimensions'];
+                        }
+                    }
 
-        // After $order->update([...])
+                    // Create shipment - if this fails, transaction will rollback order update
+                    $shipment = Shipment::create([
+                        'order_id'           => $request->order_id,
+                        'tracking_number'    => $label['trackingNumber'] ?? null,
+                        'carrier'            => $label['raw']['carrier_code'] ?? null,
+                        'label_id'           => $label['label_id'],
+                        'service_type'       => $label['raw']['service_code'] ?? null,
+                        'package_weight'     => $packageWeight,
+                        'package_dimensions' => json_encode($packageDimensions),
+                        'label_url'          => $label['labelUrl'] ?? null,
+                        'shipment_status'    => 'created',
+                        'label_data'         => json_encode($label),
+                        'ship_date'          => now(),
+                        'cost'               => $label['raw']['shipment_cost']['amount'] ?? ($label['raw']['shipment_cost'] ?? null),
+                        'currency'           => $label['raw']['shipment_cost']['currency'] ?? ($label['raw']['currency'] ?? 'USD'),
+                        'tracking_url'       => $label['raw']['tracking_url'] ?? null,
+                        'label_status'       => 'active',
+                        'void_status'        => 'active',
+                    ]);
+
+                    // Verify shipment was created
+                    if (!$shipment || !$shipment->id) {
+                        throw new \Exception("Shipment creation failed - no ID returned");
+                    }
+                });
+            } catch (\Exception $e) {
+                // Transaction failed - rollback happened automatically
+                Log::error("CRITICAL: Transaction failed in buyLabel for order {$request->order_id}", [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                
+                // Mark order as failed
+                $order->update([
+                    'label_status' => 'failed',
+                    'printing_status' => 0,
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create shipment: ' . $e->getMessage()
+                ]);
+            }
+
+            // Reload order and shipment after transaction
+            $order->refresh();
+            $shipment = Shipment::where('order_id', $request->order_id)
+                ->where('label_status', 'active')
+                ->latest()
+                ->first();
+
+            if (!$shipment) {
+                Log::error("Shipment not found after creation for order {$request->order_id}");
+                $order->update([
+                    'label_status' => 'failed',
+                    'printing_status' => 0,
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Shipment verification failed. Please try again.'
+                ]);
+            }
+
+        // Sync tracking number to platform (outside transaction - non-critical)
                      try {
                          $this->fulfillmentRepo->createFulfillment(
                                 $order->marketplace,
@@ -588,7 +704,27 @@ public function buyLabel(Request $request)
             'label_url' => $shipment->label_url,
         ]);
     } catch (\Exception $e) {
-        \Log::error("Buy Label Error: " . $e->getMessage());
+        \Log::error("Buy Label Error: " . $e->getMessage(), [
+            'order_id' => $request->order_id,
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        // Ensure order is marked as failed on any exception
+        try {
+            $order = Order::find($request->order_id);
+            if ($order) {
+                $order->update([
+                    'label_status' => 'failed',
+                    'printing_status' => 0,
+                ]);
+            }
+        } catch (\Exception $updateException) {
+            Log::error("Failed to update order status after exception", [
+                'order_id' => $request->order_id,
+                'error' => $updateException->getMessage()
+            ]);
+        }
+        
         return response()->json([
             'success' => false,
             'message' => 'Unexpected error: ' . $e->getMessage()
