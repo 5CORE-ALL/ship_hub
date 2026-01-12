@@ -550,6 +550,24 @@ class ShippingLabelService
                             "updated_at" => now(),
                         ]);
                     } else {
+                        // Validate that label has required fields before proceeding
+                        if (empty($label["label_id"])) {
+                            Log::error("Sendle label missing label_id for order {$orderId}", ['label' => $label]);
+                            $failedCount++;
+                            $order->update([
+                                "label_status" => "failed",
+                                "printing_status" => 0,
+                            ]);
+                            $labels[] = [
+                                "order_id" => $orderId,
+                                "success" => false,
+                                "message" => "Label creation succeeded but label_id is missing. Please try again.",
+                                "provider" => $provider,
+                                "source" => $source,
+                            ];
+                            continue;
+                        }
+
                         $trackingNumber = isset($label["raw"]["tracking_url"])
                             ? getSendleLocalTrackingId(
                                 $label["raw"]["tracking_url"]
@@ -559,6 +577,9 @@ class ShippingLabelService
                         // CRITICAL FIX: Wrap in transaction with verification
                         try {
                             DB::transaction(function () use ($order, $label, $trackingNumber, $userId, &$shipment) {
+                                // Safely extract shipping cost
+                                $shippingCost = $label["raw"]["shipment_cost"]["amount"] ?? ($label["raw"]["shipment_cost"] ?? 0);
+                                
                                 // Update order first
                                 $order->update([
                                     "label_id" => $label["label_id"] ?? null,
@@ -566,7 +587,7 @@ class ShippingLabelService
                                     "label_url" => $label["labelUrl"] ?? null,
                                     "shipping_carrier" => $label["raw"]["carrier_code"] ?? "sendle",
                                     "shipping_service" => $label["raw"]["service_code"] ?? null,
-                                    "shipping_cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
+                                    "shipping_cost" => $shippingCost,
                                     "ship_date" => $label["shipDate"] ?? now(),
                                     "label_status" => "purchased",
                                     "label_source" => "api",
@@ -575,6 +596,24 @@ class ShippingLabelService
                                     "printing_status" => 1,
                                 ]);
 
+                                // Safely extract package weight and dimensions
+                                $packageWeight = null;
+                                $packageDimensions = [];
+                                
+                                if (isset($label["raw"]["packages"]) && is_array($label["raw"]["packages"]) && !empty($label["raw"]["packages"][0])) {
+                                    $package = $label["raw"]["packages"][0];
+                                    if (isset($package["weight"])) {
+                                        $packageWeight = is_array($package["weight"]) ? ($package["weight"]["value"] ?? null) : $package["weight"];
+                                    }
+                                    if (isset($package["dimensions"])) {
+                                        $packageDimensions = $package["dimensions"];
+                                    }
+                                }
+
+                                // Safely extract shipping cost
+                                $shippingCost = $label["raw"]["shipment_cost"]["amount"] ?? ($label["raw"]["shipment_cost"] ?? 0);
+                                $currency = $label["raw"]["shipment_cost"]["currency"] ?? ($label["raw"]["currency"] ?? "USD");
+
                                 // Create shipment - if this fails, transaction will rollback order update
                                 $shipment = Shipment::create([
                                     "order_id" => $order->id,
@@ -582,14 +621,14 @@ class ShippingLabelService
                                     "carrier" => detectCarrier($trackingNumber) ?: 'Standard',
                                     "label_id" => $label["label_id"] ?? null,
                                     "service_type" => $label["raw"]["service_code"] ?? null,
-                                    "package_weight" => $label["raw"]["packages"][0]["weight"]["value"] ?? null,
-                                    "package_dimensions" => json_encode($label["raw"]["packages"][0]["dimensions"] ?? []),
+                                    "package_weight" => $packageWeight,
+                                    "package_dimensions" => json_encode($packageDimensions),
                                     "label_url" => $label["labelUrl"] ?? null,
                                     "shipment_status" => "created",
                                     "label_data" => json_encode($label),
                                     "ship_date" => now(),
-                                    "cost" => $label["raw"]["shipment_cost"]["amount"] ?? 0,
-                                    "currency" => $label["raw"]["shipment_cost"]["currency"] ?? "USD",
+                                    "cost" => $shippingCost,
+                                    "currency" => $currency,
                                     "tracking_url" => $label["raw"]["tracking_url"] ?? null,
                                     "label_status" => "active",
                                     "void_status" => "active",
@@ -723,6 +762,24 @@ class ShippingLabelService
                                 ($label["error"] ?? []),
                         ];
                     } else {
+                        // Validate that label has required fields before proceeding
+                        if (empty($label["label_id"])) {
+                            Log::error("Shippo label missing label_id for order {$orderId}", ['label' => $label]);
+                            $failedCount++;
+                            $order->update([
+                                "label_status" => "failed",
+                                "printing_status" => 0,
+                            ]);
+                            $labels[] = [
+                                "order_id" => $orderId,
+                                "success" => false,
+                                "message" => "Label creation succeeded but label_id is missing. Please try again.",
+                                "provider" => $provider,
+                                "source" => $source,
+                            ];
+                            continue;
+                        }
+
                         // CRITICAL FIX: Wrap in transaction to ensure atomicity
                         // Either both order update AND shipment creation succeed, or neither happens
                         try {
@@ -745,6 +802,23 @@ class ShippingLabelService
                                     "printing_status" => 1,
                                 ]);
 
+                                // Safely extract package weight and dimensions for Shippo
+                                $packageWeight = null;
+                                $packageDimensions = [];
+                                
+                                if (isset($label["raw"]["parcel"])) {
+                                    $parcel = $label["raw"]["parcel"];
+                                    if (isset($parcel["weight"])) {
+                                        $packageWeight = is_array($parcel["weight"]) ? ($parcel["weight"]["value"] ?? null) : $parcel["weight"];
+                                    }
+                                    if (isset($parcel["dimensions"])) {
+                                        $packageDimensions = $parcel["dimensions"];
+                                    }
+                                }
+
+                                // Safely extract currency
+                                $currency = $label["raw"]["shipment_cost"]["currency"] ?? ($label["raw"]["currency"] ?? "USD");
+
                                 // Create shipment - if this fails, transaction will rollback order update
                                 $shipment = Shipment::create([
                                     "order_id" => $order->id,
@@ -753,20 +827,15 @@ class ShippingLabelService
                                     "carrier" => detectCarrier($label["trackingNumber"]) ?: 'Standard',
                                     "label_id" => $label["label_id"] ?? null,
                                     "service_type" => $label["raw"]["rate"] ?? null,
-                                    "package_weight" =>
-                                        $label["raw"]["parcel"]["weight"] ?? null,
-                                    "package_dimensions" => json_encode(
-                                        $label["raw"]["parcel"]["dimensions"] ?? []
-                                    ),
+                                    "package_weight" => $packageWeight,
+                                    "package_dimensions" => json_encode($packageDimensions),
                                     "label_url" => $label["labelUrl"] ?? null,
                                     "shipment_status" => "created",
                                     "label_data" => json_encode($label),
                                     "ship_date" =>
                                         $label["raw"]["object_created"] ?? now(),
                                     "cost" => $shippingCost,
-                                    "currency" =>
-                                        $label["raw"]["shipment_cost"]["currency"] ??
-                                        "USD",
+                                    "currency" => $currency,
                                     "tracking_url" =>
                                         $label["raw"]["tracking_url_provider"] ?? null,
                                     "label_status" => "active",
@@ -900,6 +969,24 @@ class ShippingLabelService
                         $isSuccess &&
                         !empty($label["label_id"])
                     ) {
+                        // Validate that label has required fields before proceeding
+                        if (empty($label["label_id"])) {
+                            Log::error("ShipStation label missing label_id for order {$orderId}", ['label' => $label]);
+                            $failedCount++;
+                            $order->update([
+                                "label_status" => "failed",
+                                "printing_status" => 0,
+                            ]);
+                            $labels[] = [
+                                "order_id" => $orderId,
+                                "success" => false,
+                                "message" => "Label creation succeeded but label_id is missing. Please try again.",
+                                "provider" => $provider,
+                                "source" => $source,
+                            ];
+                            continue;
+                        }
+
                         // CRITICAL FIX: Wrap in transaction to ensure atomicity
                         // Either both order update AND shipment creation succeed, or neither happens
                         try {
@@ -937,6 +1024,20 @@ class ShippingLabelService
                                     "printing_status" => 1,
                                 ]);
 
+                                // Safely extract package weight and dimensions for ShipStation
+                                $packageWeight = null;
+                                $packageDimensions = [];
+                                
+                                if (isset($label["raw"]["packages"]) && is_array($label["raw"]["packages"]) && !empty($label["raw"]["packages"][0])) {
+                                    $package = $label["raw"]["packages"][0];
+                                    if (isset($package["weight"])) {
+                                        $packageWeight = is_array($package["weight"]) ? ($package["weight"]["value"] ?? null) : $package["weight"];
+                                    }
+                                    if (isset($package["dimensions"])) {
+                                        $packageDimensions = $package["dimensions"];
+                                    }
+                                }
+
                                 // Create shipment - if this fails, transaction will rollback order update
                                 $shipment = Shipment::create([
                                     "order_id" => $orderId,
@@ -944,13 +1045,8 @@ class ShippingLabelService
                                     "carrier" =>  detectCarrier($label["trackingNumber"]) ?: 'Standard',
                                     "label_id" => $label["label_id"],
                                     "service_type" => $label["raw"]["service_code"] ?? null,
-                                    "package_weight" =>
-                                        $label["raw"]["packages"][0]["weight"][
-                                            "value"
-                                        ] ?? $label["raw"]["packages"][0]["weight"] ?? null,
-                                    "package_dimensions" => json_encode(
-                                        $label["raw"]["packages"][0]["dimensions"] ?? []
-                                    ),
+                                    "package_weight" => $packageWeight,
+                                    "package_dimensions" => json_encode($packageDimensions),
                                     "label_url" => $label["labelUrl"],
                                     "shipment_status" => "created",
                                     "label_data" => json_encode($label),
