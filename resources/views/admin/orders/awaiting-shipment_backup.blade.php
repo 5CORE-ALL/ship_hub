@@ -1801,17 +1801,44 @@
                             if (response.success) {
                                 let downloadLink = '';
                                 let summaryHtml = '';
+                                let failedDetailsHtml = '';
+                                
+                                // Check if there are any failures (partial success scenario)
+                                const hasFailures = response.summary && response.summary.failed_count > 0;
+                                const hasFailedDetails = response.failed_details && response.failed_details.length > 0;
+                                
                                 if (response.labels && response.labels.summary) {
                                     summaryHtml = `<br><br><strong>Summary:</strong><br>
                                         Total Orders Processed: ${response.labels.summary.total_processed}<br>
                                         Successfully Processed: ${response.labels.summary.success_count}<br>
                                         Failed: ${response.labels.summary.failed_count}`;
+                                } else if (response.summary) {
+                                    summaryHtml = `<br><br><strong>Summary:</strong><br>
+                                        Total Orders Processed: ${response.summary.total_processed || 0}<br>
+                                        Successfully Processed: ${response.summary.success_count || 0}<br>
+                                        Failed: ${response.summary.failed_count || 0}`;
                                 }
+                                
+                                // Show failed details if there are any failures
+                                if (hasFailures && hasFailedDetails) {
+                                    failedDetailsHtml = '<br><br><strong>Failed Order Details:</strong><ul style="text-align: left; margin-top: 10px; max-height: 300px; overflow-y: auto;">';
+                                    response.failed_details.forEach(function(detail) {
+                                        const errorMsg = detail.message || detail.error || 'Unknown error';
+                                        failedDetailsHtml += `<li style="margin-bottom: 8px;"><strong>Order #${detail.order_id}:</strong> ${errorMsg}</li>`;
+                                    });
+                                    failedDetailsHtml += '</ul>';
+                                }
+                                
+                                // Determine icon and title based on whether there are failures
+                                const icon = hasFailures ? 'warning' : 'success';
+                                const title = hasFailures ? 'Partial Success' : 'Success';
+                                
                                 Swal.fire({
-                                    icon: 'success',
-                                    title: 'Success',
-                                    html: (response.message || 'Bulk Label purchased successfully!') + downloadLink + summaryHtml,
-                                    confirmButtonText: 'OK'
+                                    icon: icon,
+                                    title: title,
+                                    html: (response.message || 'Bulk Label purchase completed!') + downloadLink + summaryHtml + failedDetailsHtml,
+                                    confirmButtonText: 'OK',
+                                    width: hasFailures ? '700px' : '500px'
                                 }).then(() => {
                                     table.ajax.reload();
                                 });
