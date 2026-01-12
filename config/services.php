@@ -115,6 +115,11 @@ return [
             'order_lookup' => [
                 '/v1/orders/{order_id}',
             ],
+            'contact_lookup' => [
+                '/v1/contacts/{contact_id}',
+                '/v2/contacts/{contact_id}',
+                '/contacts/{contact_id}',
+            ],
         ],
     ],
 

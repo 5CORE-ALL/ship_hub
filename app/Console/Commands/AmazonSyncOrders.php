@@ -64,8 +64,8 @@ class AmazonSyncOrders extends Command
 
         // Set endpoint and dynamic date (using New York timezone as you used)
         $endpoint = env('AMAZON_BASE_URL', 'https://sellingpartnerapi-na.amazon.com') . '/orders/v0/orders';
-        $createdAfter = Carbon::now('America/New_York')->subDays(2)->toIso8601String();
-        $this->info("📅 Fetching orders created after {$createdAfter}");
+        $createdAfter = Carbon::now('America/New_York')->subDays(30)->toIso8601String();
+        $this->info("📅 Fetching orders created after {$createdAfter} (last 30 days)");
 
         // Fetch orders with pagination support
         $allOrders = [];
@@ -320,19 +320,32 @@ class AmazonSyncOrders extends Command
                     ->first();
 
                 if ($existingOrder) {
-                    // ✅ Only skip update if already shipped
-                    if (strtolower(trim($existingOrder->order_status)) === 'shipped') {
-                        Log::info('Skipping update for already shipped order', [
+                    // For shipped orders, only update if we have missing critical fields (recipient_name, ship_address1)
+                    // This allows eDesk data to fill in missing information
+                    $isShipped = strtolower(trim($existingOrder->order_status)) === 'shipped';
+                    $hasMissingFields = empty($existingOrder->recipient_name) || empty($existingOrder->ship_address1);
+                    
+                    if ($isShipped && !$hasMissingFields) {
+                        Log::info('Skipping update for already shipped order with complete data', [
                             'order_number' => $orderId,
                             'existing_status' => $existingOrder->order_status,
                             'api_status' => $order['OrderStatus'] ?? null,
                         ]);
                         $orderModel = $existingOrder;
                     } else {
-                        // Update since not shipped yet
+                        // Update order (even if shipped, if missing fields need to be filled)
+                        if ($isShipped && $hasMissingFields) {
+                            // Preserve order_status for shipped orders, but update missing fields
+                            unset($orderData['order_status']);
+                            Log::info('Updating shipped order with missing fields (eDesk data)', [
+                                'order_number' => $orderId,
+                                'missing_recipient_name' => empty($existingOrder->recipient_name),
+                                'missing_address' => empty($existingOrder->ship_address1),
+                            ]);
+                        }
                         $existingOrder->update($orderData);
                         $orderModel = $existingOrder;
-                        $this->info("✅ Order {$orderId} updated to status: " . ($order['OrderStatus'] ?? 'unknown'));
+                        $this->info("✅ Order {$orderId} updated" . ($isShipped ? " (shipped, filling missing fields)" : ""));
                     }
                 } else {
                     // Create new order
