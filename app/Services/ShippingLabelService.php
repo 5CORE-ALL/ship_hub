@@ -276,26 +276,81 @@ class ShippingLabelService
                         }
                     }
                 } else {
-                    // Default to cheapest rate for rate type D
-                    Log::info("Using Best Rate (D) - cheapest rate for order {$orderId}");
-                    $selectedRate = $order->cheapestRate;
-                    
-                    // Fallback: If cheapestRate relationship returns null, find cheapest manually
-                    if (!$selectedRate) {
-                        Log::warning("cheapestRate relationship returned null for order {$orderId}, trying manual lookup");
+                    // For rate type D, check if a specific rate_id is provided first
+                    // If not provided, fall back to cheapest rate
+                    if (!empty($rateInfo['rate_id'])) {
+                        Log::info("Rate type D with specific rate_id provided for order {$orderId}", [
+                            'rate_id' => $rateInfo['rate_id'],
+                            'rate_info' => $rateInfo['rate_info'] ?? null
+                        ]);
+                        
+                        // Try to find the rate by rate_id first
                         $selectedRate = OrderShippingRate::where('order_id', $orderId)
-                            ->where('service', '!=', 'USPS Media Mail')
-                            ->where('service', '!=', 'Saver Drop Off')
-                            ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
-                            ->orderBy('price', 'asc')
+                            ->where('rate_id', $rateInfo['rate_id'])
                             ->first();
                         
                         if ($selectedRate) {
-                            Log::info("Found cheapest rate manually for order {$orderId}", [
-                                'rate_id' => $selectedRate->rate_id,
+                            Log::info("Found rate by rate_id for order {$orderId}", [
+                                'rate_id' => $rateInfo['rate_id'],
                                 'carrier' => $selectedRate->carrier,
+                                'service' => $selectedRate->service,
                                 'price' => $selectedRate->price
                             ]);
+                        } else {
+                            // If not found by rate_id, try to find by carrier and service from rate_info
+                            if (!empty($rateInfo['rate_info']['carrier']) && !empty($rateInfo['rate_info']['service'])) {
+                                Log::info("Rate not found by rate_id, trying carrier/service for order {$orderId}", [
+                                    'carrier' => $rateInfo['rate_info']['carrier'],
+                                    'service' => $rateInfo['rate_info']['service']
+                                ]);
+                                
+                                $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                                    ->where('carrier', $rateInfo['rate_info']['carrier'])
+                                    ->where('service', $rateInfo['rate_info']['service'])
+                                    ->first();
+                                
+                                if ($selectedRate) {
+                                    Log::info("Found rate by carrier/service for order {$orderId}", [
+                                        'rate_id' => $selectedRate->rate_id,
+                                        'carrier' => $selectedRate->carrier,
+                                        'service' => $selectedRate->service
+                                    ]);
+                                } else {
+                                    Log::warning("Rate not found by carrier/service for order {$orderId}, falling back to cheapest rate", [
+                                        'carrier' => $rateInfo['rate_info']['carrier'],
+                                        'service' => $rateInfo['rate_info']['service']
+                                    ]);
+                                }
+                            } else {
+                                Log::warning("Rate not found by rate_id and no carrier/service in rate_info for order {$orderId}, falling back to cheapest rate", [
+                                    'rate_id' => $rateInfo['rate_id']
+                                ]);
+                            }
+                        }
+                    }
+                    
+                    // Fallback to cheapest rate if no specific rate was found or provided
+                    if (!$selectedRate) {
+                        Log::info("Using Best Rate (D) - cheapest rate for order {$orderId}");
+                        $selectedRate = $order->cheapestRate;
+                        
+                        // Fallback: If cheapestRate relationship returns null, find cheapest manually
+                        if (!$selectedRate) {
+                            Log::warning("cheapestRate relationship returned null for order {$orderId}, trying manual lookup");
+                            $selectedRate = OrderShippingRate::where('order_id', $orderId)
+                                ->where('service', '!=', 'USPS Media Mail')
+                                ->where('service', '!=', 'Saver Drop Off')
+                                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+                                ->orderBy('price', 'asc')
+                                ->first();
+                            
+                            if ($selectedRate) {
+                                Log::info("Found cheapest rate manually for order {$orderId}", [
+                                    'rate_id' => $selectedRate->rate_id,
+                                    'carrier' => $selectedRate->carrier,
+                                    'price' => $selectedRate->price
+                                ]);
+                            }
                         }
                     }
                 }
