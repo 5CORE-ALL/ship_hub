@@ -800,21 +800,22 @@ class ShippingLabelService
                             // "order_status" => "unshipped", // REMOVED - preserve original status
                         ]);
 
+                        // Extract readable error message from Shippo error response
+                        $errorMessage = $this->extractShippoErrorMessage($label);
+                        
                         Log::error(
                             "Shippo shipment failed for order {$order->id}",
                             [
-                                "messages" =>
-                                    $label["raw"]["messages"] ??
-                                    ($label["error"] ?? []),
+                                "error_message" => $errorMessage,
+                                "raw_error" => $label["raw"]["messages"] ?? ($label["error"] ?? []),
                                 "raw" => $label["raw"] ?? $label,
                             ]
                         );
 
                         $result = [
                             "success" => false,
-                            "error" =>
-                                $label["raw"]["messages"] ??
-                                ($label["error"] ?? []),
+                            "error" => $errorMessage,
+                            "message" => "Shippo shipment failed: " . $errorMessage,
                         ];
                     } else {
                         // Validate that label has required fields before proceeding
@@ -2059,5 +2060,64 @@ public function mergeLabelsPdf_v3(array $orderIds, string $type): ?string
     {
         $cleanName = preg_replace("/[^a-zA-Z\s\-\.]/", "", $name);
         return $cleanName ?: "Sender";
+    }
+
+    /**
+     * Extract readable error message from Shippo error response
+     */
+    private function extractShippoErrorMessage(array $label): string
+    {
+        // Try to extract error from raw response first
+        $errorData = $label["raw"]["messages"] ?? $label["error"] ?? null;
+        
+        if (is_string($errorData)) {
+            return $errorData;
+        }
+        
+        if (is_array($errorData)) {
+            // Shippo errors can be in various formats:
+            // - Array of strings: ["error1", "error2"]
+            // - Array with 'text' key: [["text" => "error"]]
+            // - Object with keys like 'non_field_errors', field names, etc.
+            
+            $messages = [];
+            
+            // Handle array of strings
+            if (!empty($errorData) && is_string($errorData[0] ?? null)) {
+                return implode(", ", $errorData);
+            }
+            
+            // Handle array of objects with 'text' key
+            foreach ($errorData as $item) {
+                if (is_array($item)) {
+                    if (isset($item['text'])) {
+                        $messages[] = $item['text'];
+                    } elseif (isset($item['message'])) {
+                        $messages[] = $item['message'];
+                    }
+                } elseif (is_string($item)) {
+                    $messages[] = $item;
+                }
+            }
+            
+            if (!empty($messages)) {
+                return implode(", ", $messages);
+            }
+            
+            // Try to extract from common error keys
+            $errorText = $errorData['non_field_errors'] ?? $errorData['text'] ?? $errorData['message'] ?? null;
+            if ($errorText) {
+                if (is_array($errorText)) {
+                    return implode(", ", $errorText);
+                }
+                return (string)$errorText;
+            }
+            
+            // If we can't extract a readable message, return JSON
+            return json_encode($errorData);
+        }
+        
+        // Fallback
+        return "Shippo API error (unable to parse error details)";
     }
 }

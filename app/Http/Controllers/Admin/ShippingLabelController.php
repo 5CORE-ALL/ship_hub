@@ -184,10 +184,32 @@ class ShippingLabelController extends Controller
             $errorMessages = array_map(function($detail) {
                 $orderId = $detail['order_id'] ?? 'unknown';
                 $errorMsg = $detail['message'] ?? ($detail['error'] ?? 'Unknown error');
-                // If error is an array, try to extract meaningful message
+                
+                // Handle different error message types
                 if (is_array($errorMsg)) {
+                    // Try to extract readable messages from array
+                    $messages = [];
+                    foreach ($errorMsg as $key => $value) {
+                        if (is_string($value)) {
+                            $messages[] = $value;
+                        } elseif (is_array($value)) {
+                            if (isset($value['text'])) {
+                                $messages[] = $value['text'];
+                            } elseif (isset($value['message'])) {
+                                $messages[] = $value['message'];
+                            } else {
+                                $messages[] = json_encode($value);
+                            }
+                        } else {
+                            $messages[] = (string)$value;
+                        }
+                    }
+                    $errorMsg = !empty($messages) ? implode(", ", $messages) : json_encode($errorMsg);
+                } elseif (is_object($errorMsg)) {
+                    // Handle objects (shouldn't happen, but just in case)
                     $errorMsg = json_encode($errorMsg);
                 }
+                
                 return "Order #{$orderId}: {$errorMsg}";
             }, $failedOrderDetails);
             
