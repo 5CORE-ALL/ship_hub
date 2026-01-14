@@ -5,8 +5,10 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use App\Models\Integration;
 use App\Models\Order;
+use App\Models\OrderItem;
 use Carbon\Carbon;
 use Exception;
 
@@ -95,6 +97,32 @@ class DobaSyncOrders extends Command
                         if (!$orderId) continue;
 
                         $totalQuantity = array_sum(array_column($order['orderItemList'], 'quantity')) ?? 1;
+                        
+                        // Determine label requirements
+                        $orderStatus = $order['ordStatus'] ?? null;
+                        $trackingNumber = $order['trackingNumber'] ?? $order['logisticsNumber'] ?? null;
+                        $labelUrl = $order['labelUrl'] ?? $order['shippingLabelUrl'] ?? null;
+                        $hasLabelUrl = !empty($labelUrl);
+                        
+                        // Label is required if order needs shipping and no tracking/label exists
+                        $labelRequired = in_array($orderStatus, [1, 4, 5]) && empty($trackingNumber) && !$hasLabelUrl;
+                        
+                        // Label is provided if customer has provided tracking or label URL
+                        $labelProvided = !empty($trackingNumber) || $hasLabelUrl;
+                        
+                        // Download and store label file if URL is provided
+                        $labelFilePath = null;
+                        if ($hasLabelUrl && $labelUrl) {
+                            try {
+                                $labelFilePath = $this->downloadAndStoreLabel($labelUrl, $orderId);
+                            } catch (Exception $e) {
+                                Log::warning('Failed to download DOBA label', [
+                                    'order_id' => $orderId,
+                                    'label_url' => $labelUrl,
+                                    'error' => $e->getMessage()
+                                ]);
+                            }
+                        }
 
                         $orderData = [
                             'store_id' => $integration->store_id,
@@ -109,8 +137,9 @@ class DobaSyncOrders extends Command
                             'shipping_service' => $order['shippingMethod'] ?? null,
                             'shipping_carrier' => $order['shippingMethod'] ?? null,
                             'shipping_cost' => $order['shippingSubtotal'] ?? 0,
-                            'order_status' =>  $this->mapDobaStatusToShipStation($order['ordStatus'] ?? null),
-                            'fulfillment_status' => $this->mapDobaStatusToShipStation($order['ordStatus'] ?? null),
+                            'tracking_number' => $trackingNumber,
+                            'order_status' =>  $this->mapDobaStatusToShipStation($orderStatus),
+                            'fulfillment_status' => $this->mapDobaStatusToShipStation($orderStatus),
                             'recipient_name' => $order['shippingAddress']['name'] ?? null,
                             'recipient_phone' => $order['shippingAddress']['telephone'] ?? null,
                             'ship_address1' => $order['shippingAddress']['address1'] ?? null,
@@ -121,6 +150,10 @@ class DobaSyncOrders extends Command
                             'ship_country' => $order['shippingAddress']['countryName'] ?? null,
                             'item_sku' => $order['orderItemList'][0]['goodsSkuCode'] ?? null,
                             'item_name' => $order['orderItemList'][0]['goodsName'] ?? null,
+                            'doba_label_required' => $labelRequired,
+                            'doba_label_provided' => $labelProvided,
+                            'doba_label_file' => $labelFilePath,
+                            'doba_label_sku' => $labelProvided ? ($order['orderItemList'][0]['goodsSkuCode'] ?? null) : null,
                             'raw_data' => json_encode($order),
                         ];
 
@@ -129,7 +162,34 @@ class DobaSyncOrders extends Command
                             $orderData
                         );
 
-                        Log::info('Order synced', ['order_id' => $orderId]);
+                        // Create/update order items
+                        foreach ($order['orderItemList'] as $item) {
+                            $itemSku = $item['goodsSkuCode'] ?? null;
+                            if (!$itemSku) continue;
+
+                            OrderItem::updateOrCreate(
+                                [
+                                    'order_id' => $orderModel->id,
+                                    'sku' => $itemSku,
+                                ],
+                                [
+                                    'order_number' => $orderId,
+                                    'order_item_id' => $item['orderItemId'] ?? $item['goodsSkuCode'] ?? null,
+                                    'product_name' => $item['goodsName'] ?? null,
+                                    'quantity_ordered' => $item['quantity'] ?? 1,
+                                    'unit_price' => $item['goodsPrice'] ?? $item['price'] ?? 0,
+                                    'marketplace' => 'doba',
+                                    'raw_data' => json_encode($item),
+                                ]
+                            );
+                        }
+
+                        Log::info('DOBA order synced', [
+                            'order_id' => $orderId,
+                            'label_required' => $labelRequired,
+                            'label_provided' => $labelProvided,
+                            'items_count' => count($order['orderItemList'])
+                        ]);
                     }
 
                     $page++;
@@ -199,5 +259,74 @@ class DobaSyncOrders extends Command
 
         openssl_sign($content, $signature, $private_key, OPENSSL_ALGO_SHA256);
         return base64_encode($signature);
+    }
+
+    /**
+     * Download and store label file from URL
+     *
+     * @param string $labelUrl
+     * @param string $orderId
+     * @return string|null Path to stored file or null if failed
+     */
+    private function downloadAndStoreLabel(string $labelUrl, string $orderId): ?string
+    {
+        try {
+            $response = Http::timeout(30)->get($labelUrl);
+            
+            if (!$response->ok()) {
+                Log::warning('Failed to download DOBA label', [
+                    'order_id' => $orderId,
+                    'label_url' => $labelUrl,
+                    'http_status' => $response->status()
+                ]);
+                return null;
+            }
+
+            // Determine file extension from URL or content type
+            $extension = 'pdf'; // Default to PDF
+            $contentType = $response->header('Content-Type');
+            if (stripos($contentType, 'pdf') !== false) {
+                $extension = 'pdf';
+            } elseif (stripos($contentType, 'image') !== false) {
+                if (stripos($contentType, 'jpeg') !== false || stripos($contentType, 'jpg') !== false) {
+                    $extension = 'jpg';
+                } elseif (stripos($contentType, 'png') !== false) {
+                    $extension = 'png';
+                }
+            } else {
+                // Try to get extension from URL
+                $urlPath = parse_url($labelUrl, PHP_URL_PATH);
+                if ($urlPath) {
+                    $urlExtension = strtolower(pathinfo($urlPath, PATHINFO_EXTENSION));
+                    if (in_array($urlExtension, ['pdf', 'jpg', 'jpeg', 'png'])) {
+                        $extension = $urlExtension === 'jpeg' ? 'jpg' : $urlExtension;
+                    }
+                }
+            }
+
+            // Ensure directory exists
+            $labelDir = storage_path('app/public/doba_labels');
+            if (!file_exists($labelDir)) {
+                mkdir($labelDir, 0755, true);
+            }
+
+            // Store file
+            $fileName = 'doba_labels/' . $orderId . '_' . time() . '.' . $extension;
+            Storage::disk('public')->put($fileName, $response->body());
+
+            Log::info('DOBA label downloaded and stored', [
+                'order_id' => $orderId,
+                'file_path' => $fileName
+            ]);
+
+            return $fileName;
+        } catch (Exception $e) {
+            Log::error('Error downloading DOBA label', [
+                'order_id' => $orderId,
+                'label_url' => $labelUrl,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 }

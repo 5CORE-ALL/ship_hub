@@ -57,7 +57,11 @@ class Order extends Model
         'cancel_status',
         'is_manual',
         'shipping_rate_fetched',
-        'queue','print_count','marked_as_ship','dispatch_status','dispatch_date','dispatch_by','shipping_provider_id'
+        'queue','print_count','marked_as_ship','dispatch_status','dispatch_date','dispatch_by','shipping_provider_id',
+        'doba_label_required',
+        'doba_label_provided',
+        'doba_label_file',
+        'doba_label_sku'
     ];
 
     protected $casts = [
@@ -67,6 +71,8 @@ class Order extends Model
         'is_gift'    => 'boolean',
         'shipping_cost' => 'decimal:2',
         'order_total'   => 'decimal:2',
+        'doba_label_required' => 'boolean',
+        'doba_label_provided' => 'boolean',
     ];
     public function shipment()
     {

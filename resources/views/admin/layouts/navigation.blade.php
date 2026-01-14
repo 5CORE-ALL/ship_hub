@@ -121,6 +121,11 @@
               <i class="bi bi-plus-circle"></i> Manual Orders
           </a>
       </li>
+      <li>
+          <a href="{{ route('doba-orders.index') }}">
+              <i class="bi bi-box-seam"></i> DOBA Orders
+          </a>
+      </li>
     <li>
       <a href="{{ route('awaiting-shipment.index') }}" class="has-arrow">
         <i class="bi bi-clock"></i> Awaiting Shipment

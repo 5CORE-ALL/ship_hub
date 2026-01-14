@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\{
     CostController,
     CourierController,
     DeliveryCourierController,
+    DobaOrderController,
     HistoryController,
     ManualOrderController,
     ManagerController,
@@ -125,6 +126,16 @@ Route::prefix('admin')->group(function () {
                 Route::post('/', [ManualOrderController::class, 'store'])->name('manual-orders.store');
                 // Route::get('/admin/orders/awaiting-shipment/data', [AwaitingShipmentOrderController::class, 'getAwaitingShipmentOrders'])->name('orders.awaiting.data');
                 Route::get('/data', [ManualOrderController::class, 'getManualOrdersData'])->name('manual-orders.data');
+            });
+
+            Route::prefix('doba-orders')->group(function () {
+                Route::get('/', [DobaOrderController::class, 'index'])->name('doba-orders.index');
+                Route::get('/data', [DobaOrderController::class, 'getDobaOrdersData'])->name('doba-orders.data');
+                Route::post('/move-to-purchase-label', [DobaOrderController::class, 'moveToPurchaseLabel'])->name('doba-orders.move-to-purchase-label');
+                Route::post('/upload-label', [DobaOrderController::class, 'uploadLabel'])->name('doba-orders.upload-label');
+                Route::post('/edit-sku', [DobaOrderController::class, 'editLabelSku'])->name('doba-orders.edit-sku');
+                Route::post('/move-to-purchase-label-from-edit', [DobaOrderController::class, 'moveToPurchaseLabelFromEdit'])->name('doba-orders.move-to-purchase-label-from-edit');
+                Route::get('/{orderId}/download-label', [DobaOrderController::class, 'downloadLabel'])->name('doba-orders.download-label');
             });
             Route::get('/tracking', [TrackingController::class, 'index'])->name('tracking.index');
             Route::get('/tracking/{id}', [TrackingController::class, 'show'])->name('tracking.show');
