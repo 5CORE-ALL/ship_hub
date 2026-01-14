@@ -20,26 +20,49 @@ class DobaSyncOrders extends Command
     public function handle()
     {
         $this->info('🔄 Syncing Doba orders for the last 30 days...');
+        $this->line('');
         Log::info('Starting Doba order sync process');
 
         $integration = Integration::where('store_id', 1)->first();
         if (!$integration) {
-            $this->error('No integration found for store_id 1.');
+            $this->error('❌ No integration found for store_id 1.');
             Log::error('Doba integration missing for store_id 1');
             return 1;
         }
 
+        $this->info('✓ Integration found for store_id: ' . $integration->store_id);
+        
         $statuses = [1, 4, 5, 6, 7]; // Doba statuses
         $dateRange = $this->getDateRange();
+        
+        $this->info('📅 Date Range:');
+        $this->line('   From: ' . $dateRange['begin']);
+        $this->line('   To: ' . $dateRange['end']);
+        $this->line('');
+        
         Log::info('Date range for API request', [
             'beginTime' => $dateRange['begin'],
             'endTime' => $dateRange['end'],
         ]);
 
+        // Statistics tracking
+        $totalOrdersProcessed = 0;
+        $totalOrdersCreated = 0;
+        $totalOrdersUpdated = 0;
+        $totalItemsCreated = 0;
+        $totalLabelsDownloaded = 0;
+        $totalErrors = 0;
+        $statusStats = [];
+
         foreach ($statuses as $status) {
+            $this->info("📦 Processing orders with status: {$status}");
+            $statusOrdersCount = 0;
             $page = 1;
+            
             do {
                 try {
+                    $this->line("   📄 Fetching page {$page}...");
+                    
                     $timestamp = $this->getMillisecond();
                     $contentForSign = $this->getContent($timestamp);
                     $sign = $this->generateSignature($contentForSign);
@@ -69,32 +92,46 @@ class DobaSyncOrders extends Command
                         ])->post('https://openapi.doba.com/api/seller/queryOrderDetail', $payload);
 
                     if (!$response->ok()) {
-                        $this->error("❌ API Failed for status $status: " . $response->body());
+                        $errorBody = $response->body();
+                        $this->error("   ❌ API Failed for status {$status}, page {$page}");
+                        $this->error("   Error: {$errorBody}");
                         Log::error('Doba API Response Error', [
                             'status' => $status,
                             'page' => $page,
                             'http_status' => $response->status(),
-                            'response_body' => $response->body(),
+                            'response_body' => $errorBody,
                         ]);
+                        $totalErrors++;
                         break;
                     }
 
                     $orders = $response->json()['businessData'][0]['data'] ?? [];
+                    $orderCount = count($orders);
+                    
+                    $this->line("   ✓ Received {$orderCount} orders from page {$page}");
+                    
                     Log::info('Doba API Response', [
                         'status' => $status,
                         'page' => $page,
-                        'order_count' => count($orders),
-                        'order_data'=>$orders
-
+                        'order_count' => $orderCount,
                     ]);
 
-                    if (empty($orders)) break;
+                    if (empty($orders)) {
+                        $this->line("   ℹ️  No more orders for status {$status}");
+                        break;
+                    }
 
-                    foreach ($orders as $order) {
-                        if (!isset($order['orderItemList']) || empty($order['orderItemList'])) continue;
+                    foreach ($orders as $orderIndex => $order) {
+                        if (!isset($order['orderItemList']) || empty($order['orderItemList'])) {
+                            $this->warn("   ⚠️  Order skipped: No items found");
+                            continue;
+                        }
 
                         $orderId = $order['ordBusiId'] ?? $order['orderNo'] ?? null;
-                        if (!$orderId) continue;
+                        if (!$orderId) {
+                            $this->warn("   ⚠️  Order skipped: No order ID found");
+                            continue;
+                        }
 
                         $totalQuantity = array_sum(array_column($order['orderItemList'], 'quantity')) ?? 1;
                         
@@ -114,8 +151,16 @@ class DobaSyncOrders extends Command
                         $labelFilePath = null;
                         if ($hasLabelUrl && $labelUrl) {
                             try {
+                                $this->line("   📥 Downloading label for order {$orderId}...");
                                 $labelFilePath = $this->downloadAndStoreLabel($labelUrl, $orderId);
+                                if ($labelFilePath) {
+                                    $totalLabelsDownloaded++;
+                                    $this->line("      ✓ Label downloaded: {$labelFilePath}");
+                                } else {
+                                    $this->warn("      ⚠️  Label download failed");
+                                }
                             } catch (Exception $e) {
+                                $this->warn("      ⚠️  Label download error: " . $e->getMessage());
                                 Log::warning('Failed to download DOBA label', [
                                     'order_id' => $orderId,
                                     'label_url' => $labelUrl,
@@ -157,12 +202,29 @@ class DobaSyncOrders extends Command
                             'raw_data' => json_encode($order),
                         ];
 
+                        // Check if order exists
+                        $existingOrder = Order::where('marketplace', 'doba')
+                            ->where('order_number', $orderId)
+                            ->where('external_order_id', $orderId)
+                            ->first();
+                        
+                        $isNewOrder = !$existingOrder;
+                        
                         $orderModel = Order::updateOrCreate(
                             ['marketplace' => 'doba', 'order_number' => $orderId, 'external_order_id' => $orderId],
                             $orderData
                         );
 
+                        if ($isNewOrder) {
+                            $totalOrdersCreated++;
+                            $this->line("      ✓ Order {$orderId} created (Label Required: " . ($labelRequired ? 'Yes' : 'No') . ", Label Provided: " . ($labelProvided ? 'Yes' : 'No') . ")");
+                        } else {
+                            $totalOrdersUpdated++;
+                            $this->line("      ↻ Order {$orderId} updated (Label Required: " . ($labelRequired ? 'Yes' : 'No') . ", Label Provided: " . ($labelProvided ? 'Yes' : 'No') . ")");
+                        }
+
                         // Create/update order items
+                        $itemsCount = 0;
                         foreach ($order['orderItemList'] as $item) {
                             $itemSku = $item['goodsSkuCode'] ?? null;
                             if (!$itemSku) continue;
@@ -182,7 +244,12 @@ class DobaSyncOrders extends Command
                                     'raw_data' => json_encode($item),
                                 ]
                             );
+                            $itemsCount++;
+                            $totalItemsCreated++;
                         }
+
+                        $totalOrdersProcessed++;
+                        $statusOrdersCount++;
 
                         Log::info('DOBA order synced', [
                             'order_id' => $orderId,
@@ -191,24 +258,73 @@ class DobaSyncOrders extends Command
                             'items_count' => count($order['orderItemList'])
                         ]);
                     }
+                    
+                    $this->line("   ✓ Processed {$statusOrdersCount} orders from page {$page}");
 
                     $page++;
                 } catch (Exception $e) {
-                    $this->error("⚠️ Error processing status $status page $page: " . $e->getMessage());
+                    $this->error("   ❌ Error processing status {$status}, page {$page}");
+                    $this->error("   Error: " . $e->getMessage());
+                    $this->error("   File: " . $e->getFile() . ":" . $e->getLine());
                     Log::error('Doba order sync error', [
                         'status' => $status,
                         'page' => $page,
                         'exception' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
                         'trace' => $e->getTraceAsString(),
                     ]);
+                    $totalErrors++;
                     break;
                 }
             } while (count($orders) === 100);
+            
+            $statusStats[$status] = $statusOrdersCount;
+            $this->info("✓ Status {$status} completed: {$statusOrdersCount} orders processed");
+            $this->line('');
         }
 
+        // Print summary
+        $this->line('');
+        $this->info('═══════════════════════════════════════════════════════');
+        $this->info('📊 SYNC SUMMARY');
+        $this->info('═══════════════════════════════════════════════════════');
+        $this->line('');
+        $this->info('📦 Orders:');
+        $this->line('   Total Processed: ' . $totalOrdersProcessed);
+        $this->line('   Created: ' . $totalOrdersCreated);
+        $this->line('   Updated: ' . $totalOrdersUpdated);
+        $this->line('');
+        $this->info('📋 Items:');
+        $this->line('   Total Items Created/Updated: ' . $totalItemsCreated);
+        $this->line('');
+        $this->info('🏷️  Labels:');
+        $this->line('   Labels Downloaded: ' . $totalLabelsDownloaded);
+        $this->line('');
+        $this->info('📊 By Status:');
+        foreach ($statusStats as $status => $count) {
+            $this->line("   Status {$status}: {$count} orders");
+        }
+        $this->line('');
+        if ($totalErrors > 0) {
+            $this->warn('⚠️  Errors: ' . $totalErrors);
+            $this->line('');
+        }
         $this->info('✅ Doba order sync completed!');
-        Log::info('Doba order sync completed');
-        return 0;
+        $this->info('═══════════════════════════════════════════════════════');
+        $this->line('');
+        
+        Log::info('Doba order sync completed', [
+            'total_processed' => $totalOrdersProcessed,
+            'total_created' => $totalOrdersCreated,
+            'total_updated' => $totalOrdersUpdated,
+            'total_items' => $totalItemsCreated,
+            'total_labels_downloaded' => $totalLabelsDownloaded,
+            'total_errors' => $totalErrors,
+            'status_stats' => $statusStats,
+        ]);
+        
+        return $totalErrors > 0 ? 1 : 0;
     }
 
     private function mapDobaStatusToShipStation($dobaStatus)
@@ -274,6 +390,7 @@ class DobaSyncOrders extends Command
             $response = Http::timeout(30)->get($labelUrl);
             
             if (!$response->ok()) {
+                $this->warn("      ⚠️  HTTP Error {$response->status()}: Failed to download label");
                 Log::warning('Failed to download DOBA label', [
                     'order_id' => $orderId,
                     'label_url' => $labelUrl,
@@ -321,10 +438,13 @@ class DobaSyncOrders extends Command
 
             return $fileName;
         } catch (Exception $e) {
+            $this->warn("      ⚠️  Exception: " . $e->getMessage());
             Log::error('Error downloading DOBA label', [
                 'order_id' => $orderId,
                 'label_url' => $labelUrl,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
             return null;
         }
