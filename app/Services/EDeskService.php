@@ -427,6 +427,64 @@ class EDeskService
     }
 
     /**
+     * Get sales order details by sales order ID
+     * 
+     * @param int|string $salesOrderId
+     * @return array|null
+     */
+    protected function getSalesOrderDetails($salesOrderId): ?array
+    {
+        if (!$salesOrderId) {
+            return null;
+        }
+
+        try {
+            // Try different sales order endpoints
+            $endpointPatterns = [
+                "/v1/sales_orders/{sales_order_id}",
+                "/v1/orders/{sales_order_id}",
+                "/sales_orders/{sales_order_id}",
+                "/orders/{sales_order_id}",
+            ];
+            
+            $endpoints = array_map(function($pattern) use ($salesOrderId) {
+                return str_replace('{sales_order_id}', $salesOrderId, $pattern);
+            }, $endpointPatterns);
+
+            foreach ($endpoints as $endpoint) {
+                try {
+                    $fullUrl = $this->baseUrl . $endpoint;
+                    $response = Http::timeout(10)->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->bearerToken,
+                        'Accept' => 'application/json',
+                    ])->get($fullUrl);
+
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        Log::info("eDesk sales_order details fetched via endpoint: {$endpoint}");
+                        return $data['sales_order'] ?? $data['order'] ?? $data['data'] ?? $data;
+                    } else {
+                        Log::debug("eDesk sales_order endpoint failed: {$endpoint}", [
+                            'status' => $response->status(),
+                            'error' => substr($response->body(), 0, 200),
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::debug("eDesk sales_order endpoint exception: {$endpoint}", [
+                        'error' => $e->getMessage(),
+                    ]);
+                    continue;
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::warning("eDesk sales_order fetch failed: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Get contact details by contact ID
      * 
      * @param int|string $contactId
