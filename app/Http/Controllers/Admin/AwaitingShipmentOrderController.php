@@ -491,4 +491,141 @@ public function createPrintLabels(Request $request)
         return response()->json(['status'=>'error','message'=>$e->getMessage()], 500);
     }
 }
+
+public function updateAddress(Request $request)
+{
+    $request->validate([
+        'order_id' => 'required|exists:orders,id',
+        'recipient_name' => 'required|string',
+        'ship_address1' => 'required|string',
+        'ship_address2' => 'nullable|string',
+        'ship_city' => 'required|string',
+        'ship_state' => 'required|string',
+        'ship_postal_code' => 'required|string',
+        'ship_country' => 'required|string',
+    ]);
+
+    $order = Order::findOrFail($request->order_id);
+
+    $order->update([
+        'recipient_name' => $request->recipient_name,
+        'ship_address1' => $request->ship_address1,
+        'ship_address2' => $request->ship_address2,
+        'ship_city' => $request->ship_city,
+        'ship_state' => $request->ship_state,
+        'ship_postal_code' => $request->ship_postal_code,
+        'ship_country' => $request->ship_country,
+    ]);
+
+    return response()->json([
+        'success' => true,
+        'address' => $order
+    ]);
+}
+
+public function refreshEdeskData(Request $request)
+{
+    $request->validate([
+        'order_ids' => 'required|array',
+        'order_ids.*' => 'exists:orders,id',
+    ]);
+
+    $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
+    
+    if (!$edeskService) {
+        return response()->json([
+            'success' => false,
+            'message' => 'eDesk is not configured. Please set EDESK_BEARER_TOKEN in your .env file.'
+        ], 400);
+    }
+
+    $updated = 0;
+    $failed = 0;
+    $errors = [];
+
+    foreach ($request->order_ids as $orderId) {
+        try {
+            $order = Order::findOrFail($orderId);
+            
+            // Only process Amazon orders
+            if ($order->marketplace !== 'amazon') {
+                continue;
+            }
+
+            // Fetch customer details from eDesk
+            $edeskCustomer = $edeskService->getCustomerDetailsByOrderId($order->order_number);
+            
+            if ($edeskCustomer) {
+                $updateData = [];
+                
+                // Update recipient name if missing and eDesk has it
+                if (empty($order->recipient_name) || $order->recipient_name === 'null' || $order->recipient_name === 'NULL') {
+                    if (!empty($edeskCustomer['name'])) {
+                        $updateData['recipient_name'] = trim($edeskCustomer['name']);
+                    }
+                }
+                
+                // Always update address fields if eDesk has better data (even if Amazon has partial data)
+                // This ensures we get complete address information
+                if (!empty($edeskCustomer['address1']) && (empty($order->ship_address1) || $order->ship_address1 === 'null' || $order->ship_address1 === 'NULL')) {
+                    $updateData['ship_address1'] = $edeskCustomer['address1'];
+                }
+                
+                // Update address fields if missing
+                if (empty($order->ship_address1) && !empty($edeskCustomer['address1'])) {
+                    $updateData['ship_address1'] = $edeskCustomer['address1'];
+                }
+                if (empty($order->ship_address2) && !empty($edeskCustomer['address2'])) {
+                    $updateData['ship_address2'] = $edeskCustomer['address2'];
+                }
+                if (empty($order->ship_city) && !empty($edeskCustomer['city'])) {
+                    $updateData['ship_city'] = $edeskCustomer['city'];
+                }
+                if (empty($order->ship_state) && !empty($edeskCustomer['state'])) {
+                    $updateData['ship_state'] = $edeskCustomer['state'];
+                }
+                if (empty($order->ship_postal_code) && !empty($edeskCustomer['postal_code'])) {
+                    $updateData['ship_postal_code'] = $edeskCustomer['postal_code'];
+                }
+                if (empty($order->ship_country) && !empty($edeskCustomer['country'])) {
+                    $updateData['ship_country'] = $edeskCustomer['country'];
+                }
+                if (empty($order->recipient_phone) && !empty($edeskCustomer['phone'])) {
+                    $updateData['recipient_phone'] = $edeskCustomer['phone'];
+                }
+                if (empty($order->recipient_email) && !empty($edeskCustomer['email'])) {
+                    $updateData['recipient_email'] = $edeskCustomer['email'];
+                }
+                
+                if (!empty($updateData)) {
+                    $order->update($updateData);
+                    $updated++;
+                    Log::info('Order updated with eDesk data', [
+                        'order_id' => $order->id,
+                        'order_number' => $order->order_number,
+                        'updated_fields' => array_keys($updateData),
+                    ]);
+                }
+            } else {
+                $failed++;
+                $errors[] = "Order {$order->order_number}: No eDesk data found";
+            }
+        } catch (\Exception $e) {
+            $failed++;
+            $errors[] = "Order ID {$orderId}: " . $e->getMessage();
+            Log::error('Failed to refresh eDesk data for order', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    return response()->json([
+        'success' => true,
+        'message' => "Updated {$updated} order(s). {$failed} order(s) could not be updated.",
+        'updated' => $updated,
+        'failed' => $failed,
+        'errors' => $errors,
+    ]);
+}
 }

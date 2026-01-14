@@ -166,7 +166,12 @@
         <p class="mb-1">Shipment Date: <span id="detailOrderDate"></span></p>
         <p class="mb-3">Estimated Delivery: <span id="detailDeliveryDate"></span></p>
 
-        <h6 class="fw-bold">Recipient:</h6>
+        <h6 class="fw-bold d-flex justify-content-between align-items-center">
+            <span>Recipient:</span>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="editAddressFromDetails">
+                <i class="bi bi-pencil"></i> Edit Address
+            </button>
+        </h6>
         <p class="mb-1"><span id="detailRecipient"></span></p>
         <p class="mb-1" id="detailRecipientAddress"></p>
         <p class="mb-3">Phone: <span id="detailRecipientPhone"></span></p>
@@ -187,6 +192,55 @@
     </div>
   </div>
 </div>
+<!-- Edit Address Modal -->
+<div class="modal fade" id="editAddressModal" tabindex="-1" aria-labelledby="editAddressModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="editAddressForm">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editAddressModalLabel">Edit Shipping Address</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" name="order_id" id="editOrderId">
+            <input type="hidden" name="is_address_verified" id="editIsAddressVerified">
+            <div class="mb-2">
+                <label class="form-label">Recipient Name</label>
+                <input type="text" class="form-control" name="recipient_name" id="editRecipientName" required>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Address 1</label>
+                <input type="text" class="form-control" name="ship_address1" id="editShipAddress1" required>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Address 2</label>
+                <input type="text" class="form-control" name="ship_address2" id="editShipAddress2">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">City</label>
+                <input type="text" class="form-control" name="ship_city" id="editShipCity" required>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">State</label>
+                <input type="text" class="form-control" name="ship_state" id="editShipState" required>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Postal Code</label>
+                <input type="text" class="form-control" name="ship_postal_code" id="editShipPostalCode" required>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Country</label>
+                <input type="text" class="form-control" name="ship_country" id="editShipCountry" required>
+            </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Address</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 <div class="p-3">
     <!-- Loader -->
     <div id="loader" class="loader">
@@ -202,9 +256,14 @@
             <h5 class="mb-0">Awaiting Shipment <span class="badge {{ ($overdueCount ?? 0) > 0 ? 'bg-danger' : 'bg-success' }} ms-2">({{ $overdueCount ?? 0 }})</span></h5>
             <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 1.2rem;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
         </div>
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rightModal">
-            <i class="bi bi-filter"></i> Filters
-        </button>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-success" id="refreshEdeskBtn" title="Refresh recipient data from eDesk for selected orders">
+                <i class="bi bi-arrow-clockwise"></i> Refresh from eDesk
+            </button>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rightModal">
+                <i class="bi bi-filter"></i> Filters
+            </button>
+        </div>
     </div>
 
     <!-- Overdue History Modal -->
@@ -402,13 +461,25 @@ $(document).ready(function() {
             {
                 data: 'recipient_name',
                 render: function (data, type, row) {
-                    if (!data || data.trim() === '') {
-                        return '-';
+                    // Handle null, empty string, or string "null"
+                    const hasName = data && data !== 'null' && data.trim() !== '';
+                    
+                    // If no name, try to show address info
+                    let displayText = hasName ? data : 'Edit Address';
+                    if (!hasName) {
+                        // Show city/state if available
+                        const city = row.ship_city || '';
+                        const state = row.ship_state || '';
+                        if (city || state) {
+                            displayText = (city && state) ? `${city}, ${state}` : (city || state);
+                        }
                     }
+                    
+                    const linkClass = hasName ? 'recipient-link' : 'recipient-link text-muted';
                     return `<a href="#"
-                               class="recipient-link"
+                               class="${linkClass}"
                                data-order='${JSON.stringify(row).replace(/'/g, "&apos;")}'
-                            >${data}</a>`;
+                            >${displayText}</a>`;
                 }
             },
             { data: 'quantity' },
@@ -890,6 +961,30 @@ function fetchShippingRate(rowData) {
     $('#shipmentTable').on('click', '.recipient-link', function (e) {
         e.preventDefault();
 
+        // If this is the "Edit Address" link (text-muted class), open edit modal directly
+        if ($(this).hasClass('text-muted')) {
+            let order = $(this).data('order');
+            if (typeof order === 'string') { 
+                try { order = JSON.parse(order); } catch (_) {} 
+            }
+            
+            // Populate edit modal directly - ensure all available data is shown
+            $('#editOrderId').val(order.id || '');
+            $('#editIsAddressVerified').val(order.is_address_verified || 0);
+            const recipientName = (order.recipient_name && order.recipient_name !== 'null' && order.recipient_name !== 'NULL') ? order.recipient_name : '';
+            $('#editRecipientName').val(recipientName);
+            $('#editShipAddress1').val(order.ship_address1 || '');
+            $('#editShipAddress2').val(order.ship_address2 || '');
+            $('#editShipCity').val(order.ship_city || '');
+            $('#editShipState').val(order.ship_state || '');
+            $('#editShipPostalCode').val(order.ship_postal_code || '');
+            $('#editShipCountry').val(order.ship_country || '');
+            
+            // Show edit modal
+            $('#editAddressModal').modal('show');
+            return;
+        }
+
         let order = $(this).data('order');
         console.log(order,'order');
         if (typeof order === 'string') { try { order = JSON.parse(order); } catch (_) {} }
@@ -943,7 +1038,82 @@ function fetchShippingRate(rowData) {
         $('#detailShippingCost').text(fmtMoney(order.shipping_cost));
         $('#detailShippingMethod').text(order.shipping_service || '—');
 
+        // Store order data for edit modal
+        $('#orderDetailsModal').data('order', order);
+
         $('#orderDetailsModal').modal('show');
+    });
+
+    // Handle edit address button click from order details modal
+    $('#editAddressFromDetails').on('click', function() {
+        let order = $('#orderDetailsModal').data('order');
+        if (!order) return;
+        
+        // Close order details modal
+        $('#orderDetailsModal').modal('hide');
+        
+        // Populate edit modal - handle null, empty, or string "null" values
+        // Make sure to get all available data from the order object
+        $('#editOrderId').val(order.id || '');
+        $('#editIsAddressVerified').val(order.is_address_verified || 0);
+        const recipientName = (order.recipient_name && order.recipient_name !== 'null' && order.recipient_name !== 'NULL') ? order.recipient_name : '';
+        $('#editRecipientName').val(recipientName);
+        $('#editShipAddress1').val(order.ship_address1 || '');
+        $('#editShipAddress2').val(order.ship_address2 || '');
+        $('#editShipCity').val(order.ship_city || '');
+        $('#editShipState').val(order.ship_state || '');
+        $('#editShipPostalCode').val(order.ship_postal_code || '');
+        $('#editShipCountry').val(order.ship_country || '');
+        
+        // Show edit modal
+        $('#editAddressModal').modal('show');
+    });
+
+
+    // Handle edit address form submission
+    $('#editAddressForm').on('submit', function(e) {
+        e.preventDefault();
+        var formData = $(this).serialize();
+        $('#loader').show();
+        $('body').addClass('loader-active');
+        
+        $.ajax({
+            url: "{{ route('orders.update-address') }}",
+            type: 'POST',
+            data: formData + '&_token=' + $('meta[name="csrf-token"]').attr('content'),
+            success: function(response) {
+                $('#loader').hide();
+                $('body').removeClass('loader-active');
+                if (response.success) {
+                    $('#editAddressModal').modal('hide');
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success',
+                        text: 'Shipping address updated successfully!',
+                        confirmButtonText: 'OK'
+                    }).then(() => {
+                        table.ajax.reload(null, false);
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: response.message || 'Failed to update address.',
+                        confirmButtonText: 'OK'
+                    });
+                }
+            },
+            error: function(xhr) {
+                $('#loader').hide();
+                $('body').removeClass('loader-active');
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: xhr.responseJSON?.message || 'An error occurred while updating the address.',
+                    confirmButtonText: 'OK'
+                });
+            }
+        });
     });
 
     // Overdue Count History Chart
@@ -1020,6 +1190,85 @@ function fetchShippingRate(rowData) {
     $('#historyDays').on('change', function() {
         const days = $(this).val();
         loadOverdueHistory(days);
+    });
+
+    // Handle refresh from eDesk button
+    $('#refreshEdeskBtn').on('click', function() {
+        let selectedOrders = $('.order-checkbox:checked').map(function() {
+            return $(this).val();
+        }).get();
+
+        if (selectedOrders.length === 0) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'No Orders Selected',
+                text: 'Please select at least one order to refresh from eDesk.',
+                confirmButtonText: 'OK'
+            });
+            return;
+        }
+
+        // Show loader
+        $('#loaderText').text('Fetching data from eDesk...');
+        $('#loader').show();
+        $('body').addClass('loader-active');
+        $(this).prop('disabled', true);
+
+        $.ajax({
+            url: '{{ route("orders.refresh-edesk") }}',
+            type: 'POST',
+            data: {
+                order_ids: selectedOrders,
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                $('#loader').hide();
+                $('body').removeClass('loader-active');
+                $('#refreshEdeskBtn').prop('disabled', false);
+
+                if (response.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success',
+                        html: `
+                            <p>${response.message}</p>
+                            ${response.errors && response.errors.length > 0 ? 
+                                '<p><strong>Errors:</strong></p><ul style="text-align: left; max-height: 200px; overflow-y: auto;">' + 
+                                response.errors.map(e => '<li>' + e + '</li>').join('') + 
+                                '</ul>' : ''
+                            }
+                        `,
+                        confirmButtonText: 'OK'
+                    }).then(() => {
+                        table.ajax.reload(null, false);
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: response.message || 'Failed to refresh eDesk data.',
+                        confirmButtonText: 'OK'
+                    });
+                }
+            },
+            error: function(xhr) {
+                $('#loader').hide();
+                $('body').removeClass('loader-active');
+                $('#refreshEdeskBtn').prop('disabled', false);
+
+                let msg = 'An unexpected error occurred while refreshing eDesk data.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    msg = xhr.responseJSON.message;
+                }
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: msg,
+                    confirmButtonText: 'OK'
+                });
+                console.error('AJAX Error:', xhr);
+            }
+        });
     });
 });
 </script>

@@ -93,8 +93,10 @@ Route::prefix('admin')->group(function () {
      ->name('orders.buy-shipping');
      Route::post('/admin/orders/shipping-options', [AwaitingShipmentOrderBackupController::class, 'getShippingOptions'])
     ->name('orders.shipping-options');
-    Route::post('/orders/update-address', [AwaitingShipmentOrderBackupController::class, 'updateAddress'])
+    Route::post('/orders/update-address', [AwaitingShipmentOrderController::class, 'updateAddress'])
     ->name('orders.update-address');
+    Route::post('/orders/refresh-edesk', [AwaitingShipmentOrderController::class, 'refreshEdeskData'])
+    ->name('orders.refresh-edesk');
     Route::post('/orders/buy-label', [AwaitingShipmentOrderBackupController::class, 'buyLabel'])->name('orders.buy-label');
 
     Route::post('/get-carriers', [AwaitingShipmentOrderBackupController::class, 'getCarriers'])
