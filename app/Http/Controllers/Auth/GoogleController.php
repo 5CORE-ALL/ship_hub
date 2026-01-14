@@ -55,7 +55,9 @@ class GoogleController extends Controller
                     $user->update(['google_id' => $googleUser->id]);
                 }
 
-                Auth::login($user, true);
+                Auth::login($user, false);
+                // Store login timestamp for 6-hour absolute logout
+                $request->session()->put('login_time', now()->timestamp);
                 return redirect()->route('dashboard');
             }
             $userData = User::create([
@@ -74,7 +76,9 @@ class GoogleController extends Controller
                 'status'      => 1,
             ]);
 
-            Auth::login($userData, true);
+            Auth::login($userData, false);
+            // Store login timestamp for 6-hour absolute logout
+            $request->session()->put('login_time', now()->timestamp);
             return redirect()->route('dashboard');
 
         } catch (\Exception $e) {
