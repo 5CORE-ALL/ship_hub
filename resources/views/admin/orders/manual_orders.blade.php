@@ -1178,10 +1178,22 @@
                     _token: '{{ csrf_token() }}'
                 },
                 success: function(response) {
+                    console.log('Carriers API Response:', response);
                     if (!response.rates || response.rates.length === 0) {
                         $('#carrierList').html('<div class="text-center text-muted py-3">No carriers available</div>');
                         return;
                     }
+                    
+                    // Check for USPS rates
+                    const uspsRates = response.rates.filter(rate => 
+                        rate.carrier && (
+                            rate.carrier.toLowerCase().includes('usps') || 
+                            rate.carrier.toLowerCase().includes('stamps') ||
+                            rate.carrier.toLowerCase().includes('endicia')
+                        )
+                    );
+                    console.log('USPS rates found:', uspsRates.length, uspsRates);
+                    
                     let rates = response.rates.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
                     let html = '<div class="list-group">';
                     rates.forEach((rate, index) => {

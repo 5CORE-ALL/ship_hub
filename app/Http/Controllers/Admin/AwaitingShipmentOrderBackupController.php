@@ -77,6 +77,33 @@ class AwaitingShipmentOrderBackupController extends Controller
             
             $rates = $query->get(['id','carrier', 'service', 'price','source','is_cheapest','rate_type']);
             
+            // Log USPS rates for debugging
+            $uspsRates = $rates->filter(function($rate) {
+                $carrier = strtolower($rate->carrier ?? '');
+                return str_contains($carrier, 'usps') || 
+                       str_contains($carrier, 'stamps') || 
+                       str_contains($carrier, 'endicia');
+            });
+            
+            if ($uspsRates->isNotEmpty()) {
+                Log::info('USPS rates found in getCarriers', [
+                    'order_id' => $orderId,
+                    'usps_count' => $uspsRates->count(),
+                    'usps_rates' => $uspsRates->map(fn($r) => [
+                        'carrier' => $r->carrier,
+                        'service' => $r->service,
+                        'price' => $r->price,
+                        'source' => $r->source
+                    ])->toArray()
+                ]);
+            } else {
+                Log::warning('No USPS rates found in getCarriers', [
+                    'order_id' => $orderId,
+                    'total_rates' => $rates->count(),
+                    'carriers' => $rates->pluck('carrier')->unique()->toArray()
+                ]);
+            }
+            
             // Sort in PHP to ensure proper numeric comparison
             // This ensures the modal shows rates in the same order as the cheapest selection logic
             $rates = $rates->sort(function($a, $b) {

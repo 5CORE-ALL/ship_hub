@@ -2706,7 +2706,20 @@
             // But ensure the overall cheapest rate is always included even if it's not in top 3
             const processedGroups = {};
             Object.keys(groupedRates).forEach(carrier => {
-                const sortedGroup = groupedRates[carrier]
+                // Deduplicate: Keep only one rate per service+price combination (prefer cheaper source if same price)
+                const uniqueRates = {};
+                groupedRates[carrier].forEach(rate => {
+                    if (!rate || !rate.service || rate.price === undefined) return;
+                    const key = `${rate.service}|${parseFloat(rate.price || 0).toFixed(2)}`;
+                    if (!uniqueRates[key] || 
+                        (rate.source && rate.source.toLowerCase() === 'shipstation' && 
+                         uniqueRates[key].source && uniqueRates[key].source.toLowerCase() !== 'shipstation')) {
+                        // Prefer ShipStation over other sources if price is same
+                        uniqueRates[key] = rate;
+                    }
+                });
+                
+                const sortedGroup = Object.values(uniqueRates)
                     .sort((a, b) => parseFloat(a.price || 0) - parseFloat(b.price || 0));
                 
                 // Take top 3, but ensure overall cheapest is included if it belongs to this carrier
