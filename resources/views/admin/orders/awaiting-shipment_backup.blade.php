@@ -339,8 +339,8 @@
                 <div class="text-center">
                     <i class="fas fa-exclamation-triangle text-warning" style="font-size: 2rem;"></i>
                     <p class="mt-3 mb-0" style="font-size: 1.1rem; color: #444;">
-                        Please ensure the recipient name is specified before proceeding.
-                        Update the recipient in the "Recipient" column to enable shipping options.
+                        Please ensure the recipient name or address information is specified before proceeding.
+                        Click on the recipient link to edit and add the recipient name, or use "Refresh from eDesk" to fetch it automatically.
                     </p>
                 </div>
             </div>
@@ -782,7 +782,10 @@
                         const hasNoInventory = invValue === 0;
                         
                         const hasValidWeight = row.weight != null && row.default_price != null && parseFloat(row.weight) > 0;
-                        const hasValidRecipient = row.recipient_name && row.recipient_name.trim() !== '';
+                        // Allow if recipient_name exists OR if address data exists (city, state, postal)
+                        const hasRecipientName = row.recipient_name && row.recipient_name.trim() !== '' && row.recipient_name !== 'null' && row.recipient_name !== 'NULL';
+                        const hasAddressData = (row.ship_city && row.ship_city.trim() !== '') || (row.ship_state && row.ship_state.trim() !== '') || (row.ship_postal_code && row.ship_postal_code.trim() !== '');
+                        const hasValidRecipient = hasRecipientName || hasAddressData;
                         const shippingRateFetched = row.shipping_rate_fetched !== undefined ? row.shipping_rate_fetched : (row.shipping_rate_fetched === 0 ? 0 : 1);
                         const hasValidRate = shippingRateFetched == 1 || shippingRateFetched === true;
                         
@@ -794,7 +797,7 @@
                         if (hasValidWeight && hasValidRecipient && hasValidRate) {
                             return `<input type="checkbox" class="order-checkbox-d" value="${data}" data-order-id="${data}">`;
                         } else if (!hasValidRecipient) {
-                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name is required"><i class="fas fa-user-times"></i></a>`;
+                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name or address data is required"><i class="fas fa-user-times"></i></a>`;
                         } else if (!hasValidRate) {
                             return `<a href="#" class="text-info info-icon" title="Rates not fetched yet"><i class="fas fa-info-circle"></i></a>`;
                         } else {
@@ -879,7 +882,10 @@
                         const quantity = parseFloat(row.quantity) || 0;
                         const wt_act_s = wt_act * quantity;
                         const hasValidDimensions = length > 0 && width > 0 && height > 0 && wt_act_s > 0;
-                        const hasValidRecipient = row.recipient_name && row.recipient_name.trim() !== '';
+                        // Allow if recipient_name exists OR if address data exists (city, state, postal)
+                        const hasRecipientName = row.recipient_name && row.recipient_name.trim() !== '' && row.recipient_name !== 'null' && row.recipient_name !== 'NULL';
+                        const hasAddressData = (row.ship_city && row.ship_city.trim() !== '') || (row.ship_state && row.ship_state.trim() !== '') || (row.ship_postal_code && row.ship_postal_code.trim() !== '');
+                        const hasValidRecipient = hasRecipientName || hasAddressData;
                         const cachedRate = row.best_rate_o || null;
                         const hasValidRate = cachedRate && cachedRate.carrier;
                         
@@ -891,7 +897,7 @@
                         if (hasValidDimensions && hasValidRecipient && hasValidRate) {
                             return `<input type="checkbox" class="order-checkbox-o" value="${data}" data-order-id="${data}">`;
                         } else if (!hasValidRecipient) {
-                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name is required"><i class="fas fa-user-times"></i></a>`;
+                            return `<a href="#" class="text-warning info-icon" data-bs-toggle="modal" data-bs-target="#recipientInfoModal" title="Recipient name or address data is required"><i class="fas fa-user-times"></i></a>`;
                         } else if (!hasValidDimensions) {
                             return `<a href="#" class="text-info info-icon" title="Dimensions (L, W, H, WT) are required"><i class="fas fa-info-circle"></i></a>`;
                         } else if (!hasValidRate) {

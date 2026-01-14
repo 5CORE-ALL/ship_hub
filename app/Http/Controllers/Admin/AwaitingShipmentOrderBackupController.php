@@ -253,7 +253,7 @@ class AwaitingShipmentOrderBackupController extends Controller
             if ($platform === 'shipstation') {
             $shipStation = new ShipStationService();
             $params = [
-                'ship_to_name' => $order->recipient_name,
+                'ship_to_name' => $order->recipient_name ?: ($order->ship_city ? 'Customer' : 'Recipient'),
                 'ship_to_address' => $order->ship_address1,
                 'ship_to_address2' => $order->ship_address2 ?? '',
                 'ship_to_city' => $order->ship_city,
