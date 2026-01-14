@@ -1295,7 +1295,8 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                             }
                         }
                         
-                        if ($edeskCustomer && (!empty($edeskCustomer['name']) || !empty($edeskCustomer['address1']))) {
+                        // Process if we have any customer data (name or address)
+                        if ($edeskCustomer && (!empty($edeskCustomer['name']) || !empty($edeskCustomer['address1']) || !empty($edeskCustomer['city']))) {
                             $updateData = [];
                             
                             // Check if current recipient name is invalid
@@ -1385,6 +1386,14 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
                                     // If name is empty or too long, clear it
                                     if ($isInvalidName) {
                                         $updateData['recipient_name'] = null;
+                                    }
+                                    // If we have address data but no name, create a display name from city/state
+                                    if (empty($name) && !empty($edeskCustomer['city']) && !empty($edeskCustomer['state'])) {
+                                        $updateData['recipient_name'] = $edeskCustomer['city'] . ', ' . $edeskCustomer['state'];
+                                        Log::info('Auto eDesk fetch: Using city, state as recipient name', [
+                                            'order_id' => $order->id,
+                                            'name' => $updateData['recipient_name'],
+                                        ]);
                                     }
                                 }
                             }
