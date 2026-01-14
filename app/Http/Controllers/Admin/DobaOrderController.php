@@ -143,7 +143,8 @@ class DobaOrderController extends Controller
     }
 
     /**
-     * Move label required orders to purchase label section
+     * Move orders to purchase label section
+     * Handles both label required and label provided orders
      */
     public function moveToPurchaseLabel(Request $request)
     {
@@ -156,31 +157,52 @@ class DobaOrderController extends Controller
             DB::beginTransaction();
 
             $orderIds = $request->order_ids;
+            
+            // Get orders that are either:
+            // 1. Label required (need label) OR
+            // 2. Label provided (customer provided label, ready after SKU edit)
             $orders = Order::whereIn('id', $orderIds)
                 ->where('marketplace', 'doba')
-                ->where('doba_label_required', true)
-                ->where('doba_label_provided', false)
+                ->where(function($q) {
+                    $q->where(function($subQ) {
+                        // Label required orders
+                        $subQ->where('doba_label_required', true)
+                             ->where('doba_label_provided', false);
+                    })->orWhere(function($subQ) {
+                        // Label provided orders (ready to move after SKU edit)
+                        $subQ->where('doba_label_provided', true);
+                    });
+                })
                 ->get();
 
+            $movedCount = 0;
             foreach ($orders as $order) {
                 // Update order to indicate it's ready for label purchase
-                // You can add additional status fields here if needed
                 $order->update([
                     'order_status' => 'awaiting_label_purchase',
                 ]);
+                $movedCount++;
             }
 
             DB::commit();
 
+            if ($movedCount === 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No eligible orders found. Orders must be either "Label Required" or "Label Provided" to move to purchase label section.',
+                ], 400);
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => count($orders) . ' order(s) moved to purchase label section.',
+                'message' => $movedCount . ' order(s) moved to purchase label section.',
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error moving DOBA orders to purchase label', [
                 'error' => $e->getMessage(),
                 'order_ids' => $request->order_ids,
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -280,6 +302,7 @@ class DobaOrderController extends Controller
 
     /**
      * Move edited label to purchase label section
+     * This is specifically for label provided orders that have been edited
      */
     public function moveToPurchaseLabelFromEdit(Request $request)
     {
@@ -292,31 +315,42 @@ class DobaOrderController extends Controller
             DB::beginTransaction();
 
             $orderIds = $request->order_ids;
+            // For label provided orders, we require SKU to be set (edited)
+            // Label file is optional as it might be a tracking number only
             $orders = Order::whereIn('id', $orderIds)
                 ->where('marketplace', 'doba')
                 ->where('doba_label_provided', true)
-                ->whereNotNull('doba_label_file')
                 ->whereNotNull('doba_label_sku')
                 ->get();
 
+            $movedCount = 0;
             foreach ($orders as $order) {
                 // Update order to indicate it's ready for label purchase
                 $order->update([
                     'order_status' => 'awaiting_label_purchase',
                 ]);
+                $movedCount++;
             }
 
             DB::commit();
 
+            if ($movedCount === 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No eligible orders found. Label provided orders must have SKU edited before moving to purchase label section.',
+                ], 400);
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => count($orders) . ' order(s) moved to purchase label section.',
+                'message' => $movedCount . ' order(s) moved to purchase label section.',
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error moving DOBA orders to purchase label from edit', [
                 'error' => $e->getMessage(),
                 'order_ids' => $request->order_ids,
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([

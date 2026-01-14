@@ -141,11 +141,16 @@ class DobaSyncOrders extends Command
                         $labelUrl = $order['labelUrl'] ?? $order['shippingLabelUrl'] ?? null;
                         $hasLabelUrl = !empty($labelUrl);
                         
-                        // Label is required if order needs shipping and no tracking/label exists
-                        $labelRequired = in_array($orderStatus, [1, 4, 5]) && empty($trackingNumber) && !$hasLabelUrl;
-                        
                         // Label is provided if customer has provided tracking or label URL
+                        // This takes priority - if label is provided, it's not required
                         $labelProvided = !empty($trackingNumber) || $hasLabelUrl;
+                        
+                        // Label is required if:
+                        // 1. Order status is 1, 4, or 5 (needs shipping)
+                        // 2. No tracking number exists
+                        // 3. No label URL exists
+                        // 4. Label is not already provided
+                        $labelRequired = in_array($orderStatus, [1, 4, 5]) && !$labelProvided && empty($trackingNumber) && !$hasLabelUrl;
                         
                         // Download and store label file if URL is provided
                         $labelFilePath = null;
