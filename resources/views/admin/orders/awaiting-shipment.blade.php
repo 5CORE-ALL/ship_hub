@@ -258,10 +258,10 @@
         </div>
         <div class="d-flex gap-2">
             <button type="button" class="btn btn-success" id="refreshEdeskBtn" title="Refresh recipient data from eDesk for selected orders">
-                <i class="bi bi-arrow-clockwise"></i> Refresh from eDesk
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh from eDesk
             </button>
             <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rightModal">
-                <i class="bi bi-filter"></i> Filters
+                <i class="bi bi-filter me-1"></i>Filters
             </button>
         </div>
     </div>
