@@ -124,19 +124,13 @@ class ShippingLabelController extends Controller
         ]);
     }
 
-    $lockedOrders = Order::whereIn('id', $orderIds)
+    // Get order IDs that can be locked (queue = 0)
+    $lockableOrderIds = Order::whereIn('id', $orderIds)
         ->where('queue', 0)
-        ->update([
-            'queue' => 1,
-            'queue_started_at' => now()
-        ]);
+        ->pluck('id')
+        ->toArray();
 
-    Log::info('Orders locked for bulk shipping.', [
-        'order_ids' => $orderIds,
-        'locked_count' => $lockedOrders
-    ]);
-
-    if ($lockedOrders === 0) {
+    if (empty($lockableOrderIds)) {
         Log::warning('Selected orders already in queue or being processed.', [
             'order_ids' => $orderIds
         ]);
@@ -146,9 +140,30 @@ class ShippingLabelController extends Controller
         ]);
     }
 
+    // Lock the orders
+    $lockedOrders = Order::whereIn('id', $lockableOrderIds)
+        ->update([
+            'queue' => 1,
+            'queue_started_at' => now()
+        ]);
+
+    Log::info('Orders locked for bulk shipping.', [
+        'all_order_ids' => $orderIds,
+        'lockable_order_ids' => $lockableOrderIds,
+        'locked_count' => $lockedOrders
+    ]);
+
+    // Filter rateInfoMap to only include locked orders
+    $lockedRateInfoMap = [];
+    foreach ($lockableOrderIds as $orderId) {
+        if (isset($rateInfoMap[$orderId])) {
+            $lockedRateInfoMap[$orderId] = $rateInfoMap[$orderId];
+        }
+    }
+
     try {
-        // Pass rate info map to createLabels
-        $result = $this->shippingLabelService->createLabels($orderIds, Auth::user()->id ?? 1, $rateInfoMap);
+        // Pass only the successfully locked order IDs to createLabels
+        $result = $this->shippingLabelService->createLabels($lockableOrderIds, Auth::user()->id ?? 1, $lockedRateInfoMap);
 
         Log::info('Bulk shipping completed.', [
             'summary' => $result['summary'] ?? []
@@ -221,9 +236,9 @@ class ShippingLabelController extends Controller
             
             // Add summary at the end
             $message .= "\n\nSummary:\n";
-            $message .= "Total Orders Processed: " . ($result['summary']['total_processed'] ?? count($orderIds)) . "\n";
+            $message .= "Total Orders Processed: " . ($result['summary']['total_processed'] ?? count($lockableOrderIds)) . "\n";
             $message .= "Successfully Processed: " . ($result['summary']['success_count'] ?? 0) . "\n";
-            $message .= "Failed: " . ($result['summary']['failed_count'] ?? count($orderIds));
+            $message .= "Failed: " . ($result['summary']['failed_count'] ?? count($lockableOrderIds));
         }
 
         return response()->json([
@@ -236,19 +251,20 @@ class ShippingLabelController extends Controller
     } catch (\Exception $e) {
         Log::error('Bulk shipping error: ' . $e->getMessage(), [
             'order_ids' => $orderIds,
+            'lockable_order_ids' => $lockableOrderIds,
             'trace' => $e->getTraceAsString()
         ]);
 
-        // CRITICAL: Ensure all orders are unlocked even on exception
+        // CRITICAL: Ensure all locked orders are unlocked even on exception
         try {
-            $unlockedCount = Order::whereIn('id', $orderIds)->update(['queue' => 0]);
+            $unlockedCount = Order::whereIn('id', $lockableOrderIds)->update(['queue' => 0]);
             Log::info('Orders unlocked after exception', [
-                'order_ids' => $orderIds,
+                'lockable_order_ids' => $lockableOrderIds,
                 'unlocked_count' => $unlockedCount
             ]);
         } catch (\Exception $unlockException) {
             Log::error('CRITICAL: Failed to unlock orders after exception', [
-                'order_ids' => $orderIds,
+                'lockable_order_ids' => $lockableOrderIds,
                 'unlock_error' => $unlockException->getMessage()
             ]);
         }
@@ -256,13 +272,13 @@ class ShippingLabelController extends Controller
         return response()->json([
             'success' => false,
             'message' => 'Failed to buy bulk shipping: ' . $e->getMessage(),
-            'order_ids' => $orderIds // Include order IDs so frontend knows which orders to check
+            'order_ids' => $lockableOrderIds // Include order IDs so frontend knows which orders to check
         ], 500);
     } finally {
-        // CRITICAL: Double-check that all orders are unlocked
+        // CRITICAL: Double-check that all locked orders are unlocked
         // This ensures orders are never stuck in queue state
         try {
-            $stillLocked = Order::whereIn('id', $orderIds)
+            $stillLocked = Order::whereIn('id', $lockableOrderIds)
                 ->where('queue', 1)
                 ->pluck('id')
                 ->toArray();
@@ -276,7 +292,7 @@ class ShippingLabelController extends Controller
         } catch (\Exception $finallyException) {
             Log::error('CRITICAL: Error in finally block while unlocking orders', [
                 'error' => $finallyException->getMessage(),
-                'order_ids' => $orderIds
+                'lockable_order_ids' => $lockableOrderIds
             ]);
         }
     }
