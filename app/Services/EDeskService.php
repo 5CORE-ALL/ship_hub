@@ -175,32 +175,156 @@ class EDeskService
                         $data = $response->json();
                         Log::info("eDesk ticket details fetched via endpoint: {$endpoint}");
                         
+                        // Log the actual response structure to debug (limit size to avoid huge logs)
+                        $logData = [
+                            'top_level_keys' => array_keys($data),
+                            'has_data_key' => isset($data['data']),
+                        ];
+                        if (isset($data['data']) && is_array($data['data'])) {
+                            $logData['data_keys'] = array_keys($data['data']);
+                            // Log a sample of the data structure (first level only)
+                            foreach ($data['data'] as $key => $value) {
+                                if (is_array($value)) {
+                                    $logData["data_{$key}_keys"] = array_keys($value);
+                                } else {
+                                    $logData["data_{$key}"] = is_string($value) ? substr($value, 0, 50) : $value;
+                                }
+                            }
+                        }
+                        Log::info("eDesk ticket response structure", $logData);
+                        
                         // Try to extract customer details from ticket
                         $customerDetails = $this->extractCustomerDetails($data);
                         
-                        // If we have contact_id but missing address data, fetch contact details
-                        // (even if we have a name, we still need address)
-                        if (empty($customerDetails['address1'])) {
-                            $ticketData = $data['data'] ?? $data;
-                            $salesOrder = $data['sales_order'] ?? $ticketData['sales_order'] ?? null;
-                            $contactId = $ticketData['contact_id'] 
-                                ?? $salesOrder['contact_id'] 
-                                ?? $data['contact_id'] 
-                                ?? null;
-                            
-                            if ($contactId) {
-                                Log::info("eDesk ticket has contact_id but missing address, fetching contact details", [
-                                    'contact_id' => $contactId,
-                                    'has_name' => !empty($customerDetails['name']),
-                                ]);
-                                $contactDetails = $this->getContactDetails($contactId);
-                                if ($contactDetails) {
-                                    // Merge contact details with any existing customer details (contact overwrites ticket data)
-                                    $customerDetails = array_merge($customerDetails, $contactDetails);
-                                    Log::info("eDesk contact details fetched and merged", [
+                        // Always try to get contact details if contact_id is available (for better name and address)
+                        $ticketData = $data['data'] ?? $data;
+                        $salesOrder = $data['sales_order'] ?? $ticketData['sales_order'] ?? null;
+                        $ticketId = $ticketData['id'] ?? $data['id'] ?? null;
+                        $contactId = $ticketData['contact_id'] 
+                            ?? $salesOrder['contact_id'] 
+                            ?? $data['contact_id'] 
+                            ?? null;
+                        
+                        // Log sales_order structure for debugging
+                        if ($salesOrder && is_array($salesOrder)) {
+                            Log::debug("eDesk sales_order structure", [
+                                'has_ship_to' => isset($salesOrder['ship_to']),
+                                'has_bill_to' => isset($salesOrder['bill_to']),
+                                'has_contact_id' => isset($salesOrder['contact_id']),
+                                'ship_to_type' => isset($salesOrder['ship_to']) ? gettype($salesOrder['ship_to']) : 'not_set',
+                                'ship_to_keys' => isset($salesOrder['ship_to']) && is_array($salesOrder['ship_to']) ? array_keys($salesOrder['ship_to']) : [],
+                                'sales_order_keys' => array_keys($salesOrder),
+                            ]);
+                        }
+                        
+                        // Try to get sales_order details if we have sales_order_id (might have customer data)
+                        $salesOrderId = $salesOrder['id'] ?? $ticketData['sales_order_id'] ?? null;
+                        if ($salesOrderId && empty($customerDetails['name']) && empty($customerDetails['address1'])) {
+                            Log::info("eDesk trying sales_order endpoint for customer data", [
+                                'sales_order_id' => $salesOrderId,
+                            ]);
+                            $salesOrderDetails = $this->getSalesOrderDetails($salesOrderId);
+                            if ($salesOrderDetails) {
+                                $salesOrderCustomer = $this->extractCustomerDetails($salesOrderDetails);
+                                if (!empty($salesOrderCustomer['name']) || !empty($salesOrderCustomer['address1'])) {
+                                    $customerDetails = array_merge($customerDetails, $salesOrderCustomer);
+                                    Log::info("eDesk customer data from sales_order", [
                                         'fields_found' => array_keys($customerDetails),
+                                        'has_name' => !empty($customerDetails['name']),
                                         'has_address' => !empty($customerDetails['address1']),
                                     ]);
+                                }
+                            }
+                        }
+                        
+                        if ($contactId && (empty($customerDetails['name']) || empty($customerDetails['address1']))) {
+                            Log::info("eDesk ticket has contact_id, fetching contact details", [
+                                'contact_id' => $contactId,
+                                'has_name' => !empty($customerDetails['name']),
+                                'has_address' => !empty($customerDetails['address1']),
+                            ]);
+                            $contactDetails = $this->getContactDetails($contactId);
+                            if ($contactDetails) {
+                                // Merge contact details - contact data is more reliable than ticket data
+                                $customerDetails = array_merge($customerDetails, $contactDetails);
+                                Log::info("eDesk contact details fetched and merged", [
+                                    'fields_found' => array_keys($customerDetails),
+                                    'has_name' => !empty($customerDetails['name']),
+                                    'has_address' => !empty($customerDetails['address1']),
+                                ]);
+                            } else {
+                                // If contact endpoint fails, try to get from messages endpoint
+                                Log::info("eDesk contact endpoint failed, trying messages endpoint", [
+                                    'contact_id' => $contactId,
+                                ]);
+                                
+                                // If we have ticket_id, try messages endpoint to get customer info
+                                if ($ticketId) {
+                                    $messagesEndpoints = [
+                                        "/v1/tickets/{$ticketId}/messages",
+                                        "/v1/tickets/{$ticketId}/threads",
+                                        "/tickets/{$ticketId}/messages",
+                                    ];
+                                    
+                                    foreach ($messagesEndpoints as $messagesEndpoint) {
+                                        try {
+                                            $messagesUrl = $this->baseUrl . $messagesEndpoint;
+                                            $messagesResponse = Http::timeout(10)->withHeaders([
+                                                'Authorization' => 'Bearer ' . $this->bearerToken,
+                                                'Accept' => 'application/json',
+                                            ])->get($messagesUrl);
+                                            
+                                            if ($messagesResponse->successful()) {
+                                                $messagesData = $messagesResponse->json();
+                                                $messages = $messagesData['messages'] ?? $messagesData['data'] ?? [];
+                                                if (!empty($messages) && is_array($messages)) {
+                                                    // Get customer info from messages (usually has customer data)
+                                                    foreach ($messages as $message) {
+                                                        if (isset($message['contact']) && is_array($message['contact'])) {
+                                                            $contactExtracted = $this->extractCustomerDetails($message['contact']);
+                                                            if (!empty($contactExtracted['name']) || !empty($contactExtracted['address1'])) {
+                                                                $customerDetails = array_merge($customerDetails, $contactExtracted);
+                                                                Log::info("eDesk contact data extracted from messages", [
+                                                                    'fields_found' => array_keys($customerDetails),
+                                                                    'endpoint' => $messagesEndpoint,
+                                                                ]);
+                                                                break 2; // Break out of both loops
+                                                            }
+                                                        }
+                                                        // Also check if message itself has customer fields
+                                                        if (isset($message['name']) || isset($message['email']) || isset($message['address'])) {
+                                                            $messageExtracted = $this->extractCustomerDetails($message);
+                                                            if (!empty($messageExtracted['name']) || !empty($messageExtracted['address1'])) {
+                                                                $customerDetails = array_merge($customerDetails, $messageExtracted);
+                                                                Log::info("eDesk customer data extracted from message", [
+                                                                    'fields_found' => array_keys($customerDetails),
+                                                                ]);
+                                                                break 2;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } catch (\Exception $e) {
+                                            Log::debug("eDesk messages endpoint failed", [
+                                                'endpoint' => $messagesEndpoint,
+                                                'error' => $e->getMessage()
+                                            ]);
+                                            continue;
+                                        }
+                                    }
+                                }
+                                
+                                // Also try to extract from ticket data directly as fallback
+                                $contactInTicket = $ticketData['contact'] ?? $data['contact'] ?? null;
+                                if ($contactInTicket && is_array($contactInTicket)) {
+                                    $contactExtracted = $this->extractCustomerDetails($contactInTicket);
+                                    if (!empty($contactExtracted)) {
+                                        $customerDetails = array_merge($customerDetails, $contactExtracted);
+                                        Log::info("eDesk contact data extracted from ticket", [
+                                            'fields_found' => array_keys($customerDetails),
+                                        ]);
+                                    }
                                 }
                             }
                         }
@@ -384,7 +508,16 @@ class EDeskService
         $salesOrder = $data['sales_order'] ?? ($data['data']['sales_order'] ?? null);
         $ticketData = $data['data'] ?? $data;
         
-        // Try different possible structures for customer data
+        // Log what we're looking at for debugging
+        Log::debug("eDesk extraction - checking structures", [
+            'has_data' => isset($data['data']),
+            'has_contact' => isset($data['contact']) || isset($ticketData['contact']),
+            'has_customer' => isset($data['customer']),
+            'has_sales_order' => !empty($salesOrder),
+            'ticket_data_keys' => is_array($ticketData) ? array_keys($ticketData) : [],
+        ]);
+        
+        // Try different possible structures for customer data - prioritize contact/customer over ticket data
         $customerData = $data['customer'] 
             ?? $data['contact'] 
             ?? $ticketData['contact'] 
@@ -392,7 +525,25 @@ class EDeskService
             ?? $salesOrder['ship_to']
             ?? $salesOrder['bill_to']
             ?? $data['buyer'] 
-            ?? $data;
+            ?? null; // Don't fall back to $data - that would include ticket subject
+        
+        // If we didn't find customer data, try to extract from ticket messages or other fields
+        if (empty($customerData) || !is_array($customerData)) {
+            // Check if there's customer info in messages or other ticket fields
+            $messages = $data['messages'] ?? $ticketData['messages'] ?? [];
+            if (!empty($messages) && is_array($messages)) {
+                // Try to get customer from first message
+                $firstMessage = is_array($messages[0] ?? null) ? $messages[0] : null;
+                if ($firstMessage) {
+                    $customerData = $firstMessage['contact'] ?? $firstMessage['customer'] ?? $firstMessage['author'] ?? null;
+                }
+            }
+        }
+        
+        // If still no customer data, set to empty array
+        if (empty($customerData) || !is_array($customerData)) {
+            $customerData = [];
+        }
             
         $shippingAddress = $data['shipping_address'] 
             ?? $data['address'] 
@@ -413,8 +564,10 @@ class EDeskService
             $shippingAddress = [];
         }
 
-        // Extract customer name - try multiple sources
-        $customer['name'] = $customerData['name'] 
+        // Extract customer name - prioritize contact/customer data, NEVER use ticket subject
+        // Try contact/customer fields first (most reliable)
+        // Also check if sales_order has customer name directly
+        $rawName = $customerData['name'] 
             ?? $customerData['full_name'] 
             ?? $customerData['contact_name']
             ?? (!empty($customerData['first_name']) || !empty($customerData['last_name']) 
@@ -422,9 +575,56 @@ class EDeskService
                 : null)
             ?? $shippingAddress['name']
             ?? $shippingAddress['full_name']
-            ?? $ticketData['subject'] // Sometimes subject contains customer name
+            ?? ($salesOrder && is_array($salesOrder) ? ($salesOrder['customer_name'] ?? $salesOrder['buyer_name'] ?? $salesOrder['recipient_name'] ?? null) : null)
             ?? $data['recipient_name']
             ?? null;
+        
+        // Validate the name - reject ticket subjects
+        if (!empty($rawName)) {
+            $nameLower = strtolower(trim($rawName));
+            $invalidPatterns = [
+                'sent a message',
+                'about',
+                'buyer wants',
+                'wants to cancel',
+                'cancel an order',
+                'a buyer',
+                'the buyer',
+                'wants to',
+            ];
+            
+            // Check for invalid patterns
+            $isInvalid = false;
+            foreach ($invalidPatterns as $pattern) {
+                if (strpos($nameLower, $pattern) !== false) {
+                    $isInvalid = true;
+                    break;
+                }
+            }
+            
+            // Check if it starts with "A buyer" or "The buyer"
+            if (!$isInvalid && (strpos($nameLower, 'a buyer') === 0 || strpos($nameLower, 'the buyer') === 0)) {
+                $isInvalid = true;
+            }
+            
+            // Check for ticket subject patterns (e.g., "username sent a message about...")
+            if (!$isInvalid && (
+                preg_match('/^[a-z0-9]+ sent a message/i', $rawName) ||
+                preg_match('/about .*#\d+/i', $rawName) ||
+                strlen($rawName) > 80
+            )) {
+                $isInvalid = true;
+            }
+            
+            // Only use if valid
+            if (!$isInvalid) {
+                $customer['name'] = trim($rawName);
+            }
+            // If invalid, don't set name (will be null)
+        }
+        
+        // NEVER use ticket subject - it's always a message, not a customer name
+        // Ticket subjects are like "pi2847 sent a message about..." which are NOT customer names
 
         // Extract email
         $customer['email'] = $customerData['email'] 
@@ -445,11 +645,29 @@ class EDeskService
             ?? null;
 
         // Extract address fields from shipping address
+        // Also check sales_order.ship_to if available (even if null, might be in sales_order directly)
+        $shipTo = $salesOrder['ship_to'] ?? null;
+        if ($shipTo && is_array($shipTo)) {
+            $shippingAddress = array_merge($shippingAddress, $shipTo);
+        }
+        
+        // Also check if sales_order has address fields directly
+        if ($salesOrder && is_array($salesOrder)) {
+            $soAddressFields = ['address1', 'address_line1', 'street', 'city', 'state', 'postal_code', 'zip_code', 'country'];
+            foreach ($soAddressFields as $field) {
+                if (isset($salesOrder[$field]) && !isset($shippingAddress[$field])) {
+                    $shippingAddress[$field] = $salesOrder[$field];
+                }
+            }
+        }
+        
         $customer['address1'] = $shippingAddress['address1'] 
             ?? $shippingAddress['address_line1'] 
             ?? $shippingAddress['street']
             ?? $shippingAddress['street_address']
             ?? $shippingAddress['AddressLine1']
+            ?? ($shipTo && is_array($shipTo) ? ($shipTo['address1'] ?? $shipTo['address_line1'] ?? null) : null)
+            ?? ($salesOrder['address1'] ?? $salesOrder['address_line1'] ?? null)
             ?? $customerData['address1']
             ?? $customerData['address_line1']
             ?? null;
@@ -464,6 +682,8 @@ class EDeskService
 
         $customer['city'] = $shippingAddress['city'] 
             ?? $shippingAddress['City']
+            ?? ($shipTo && is_array($shipTo) ? ($shipTo['city'] ?? null) : null)
+            ?? ($salesOrder['city'] ?? null)
             ?? $customerData['city']
             ?? null;
 
@@ -471,6 +691,8 @@ class EDeskService
             ?? $shippingAddress['state_or_region']
             ?? $shippingAddress['StateOrRegion']
             ?? $shippingAddress['province']
+            ?? ($shipTo && is_array($shipTo) ? ($shipTo['state'] ?? $shipTo['state_or_region'] ?? null) : null)
+            ?? ($salesOrder['state'] ?? $salesOrder['state_or_region'] ?? null)
             ?? $customerData['state']
             ?? null;
 
@@ -479,6 +701,8 @@ class EDeskService
             ?? $shippingAddress['zip_code']
             ?? $shippingAddress['zip']
             ?? $shippingAddress['PostalCode']
+            ?? ($shipTo && is_array($shipTo) ? ($shipTo['postal_code'] ?? $shipTo['zip_code'] ?? null) : null)
+            ?? ($salesOrder['postal_code'] ?? $salesOrder['zip_code'] ?? null)
             ?? $customerData['postal_code']
             ?? $customerData['zip_code']
             ?? null;

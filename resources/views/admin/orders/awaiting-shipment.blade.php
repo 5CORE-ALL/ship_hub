@@ -257,9 +257,6 @@
             <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 1.2rem;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
         </div>
         <div class="d-flex gap-2">
-            <button type="button" class="btn btn-success" id="refreshEdeskBtn" title="Refresh recipient data from eDesk for selected orders">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh from eDesk
-            </button>
             <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rightModal">
                 <i class="bi bi-filter me-1"></i>Filters
             </button>
@@ -1192,84 +1189,6 @@ function fetchShippingRate(rowData) {
         loadOverdueHistory(days);
     });
 
-    // Handle refresh from eDesk button
-    $('#refreshEdeskBtn').on('click', function() {
-        let selectedOrders = $('.order-checkbox:checked').map(function() {
-            return $(this).val();
-        }).get();
-
-        if (selectedOrders.length === 0) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'No Orders Selected',
-                text: 'Please select at least one order to refresh from eDesk.',
-                confirmButtonText: 'OK'
-            });
-            return;
-        }
-
-        // Show loader
-        $('#loaderText').text('Fetching data from eDesk...');
-        $('#loader').show();
-        $('body').addClass('loader-active');
-        $(this).prop('disabled', true);
-
-        $.ajax({
-            url: '{{ route("orders.refresh-edesk") }}',
-            type: 'POST',
-            data: {
-                order_ids: selectedOrders,
-                _token: '{{ csrf_token() }}'
-            },
-            success: function(response) {
-                $('#loader').hide();
-                $('body').removeClass('loader-active');
-                $('#refreshEdeskBtn').prop('disabled', false);
-
-                if (response.success) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success',
-                        html: `
-                            <p>${response.message}</p>
-                            ${response.errors && response.errors.length > 0 ? 
-                                '<p><strong>Errors:</strong></p><ul style="text-align: left; max-height: 200px; overflow-y: auto;">' + 
-                                response.errors.map(e => '<li>' + e + '</li>').join('') + 
-                                '</ul>' : ''
-                            }
-                        `,
-                        confirmButtonText: 'OK'
-                    }).then(() => {
-                        table.ajax.reload(null, false);
-                    });
-                } else {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: response.message || 'Failed to refresh eDesk data.',
-                        confirmButtonText: 'OK'
-                    });
-                }
-            },
-            error: function(xhr) {
-                $('#loader').hide();
-                $('body').removeClass('loader-active');
-                $('#refreshEdeskBtn').prop('disabled', false);
-
-                let msg = 'An unexpected error occurred while refreshing eDesk data.';
-                if (xhr.responseJSON && xhr.responseJSON.message) {
-                    msg = xhr.responseJSON.message;
-                }
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error',
-                    text: msg,
-                    confirmButtonText: 'OK'
-                });
-                console.error('AJAX Error:', xhr);
-            }
-        });
-    });
 });
 </script>
 @endsection

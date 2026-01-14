@@ -1180,6 +1180,271 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
             }
         }
         
+        // Automatically fetch missing recipient data from eDesk for Amazon orders (limit to first 10 to avoid rate limits)
+        $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
+        if ($edeskService) {
+            $ordersToUpdate = $orders->filter(function ($order) {
+                if ($order->marketplace !== 'amazon') {
+                    return false;
+                }
+                
+                $recipientName = $order->recipient_name ?? '';
+                $isNull = empty($recipientName) || 
+                         $recipientName === 'null' || 
+                         $recipientName === 'NULL' || 
+                         trim($recipientName) === '';
+                
+                // Check if recipient name looks like a message subject (invalid data from eDesk)
+                $isInvalid = false;
+                if (!empty($recipientName)) {
+                    $invalidPatterns = [
+                        'sent a message',
+                        'about',
+                        'buyer wants',
+                        'wants to cancel',
+                        'cancel an order',
+                        'a buyer',
+                        'the buyer',
+                    ];
+                    foreach ($invalidPatterns as $pattern) {
+                        if (stripos($recipientName, $pattern) !== false) {
+                            $isInvalid = true;
+                            break;
+                        }
+                    }
+                    // Also check if it's too long (likely a message subject)
+                    if (strlen($recipientName) > 80) {
+                        $isInvalid = true;
+                    }
+                }
+                
+                $hasMissingAddress = empty($order->ship_address1) || empty($order->ship_city) || empty($order->ship_state);
+                
+                return ($isNull || $isInvalid || $hasMissingAddress);
+            })->take(10); // Limit to 10 orders per page load
+            
+            if ($ordersToUpdate->isNotEmpty()) {
+                Log::info('Auto eDesk fetch: Found orders to check', [
+                    'count' => $ordersToUpdate->count(),
+                    'order_ids' => $ordersToUpdate->pluck('id')->toArray(),
+                ]);
+                
+                foreach ($ordersToUpdate as $order) {
+                    try {
+                        Log::info('Auto eDesk fetch: Attempting for order', [
+                            'order_id' => $order->id,
+                            'order_number' => $order->order_number,
+                            'current_recipient_name' => $order->recipient_name ?? 'NULL',
+                        ]);
+                        
+                        // Fetch customer details from eDesk
+                        $edeskCustomer = $edeskService->getCustomerDetailsByOrderId($order->order_number);
+                        
+                        // If eDesk doesn't have data, try Amazon SP-API as fallback
+                        if (empty($edeskCustomer) || (empty($edeskCustomer['name']) && empty($edeskCustomer['address1']))) {
+                            try {
+                                $integration = \App\Models\Integration::where('store_id', 1)->first();
+                                if ($integration) {
+                                    $amazonService = new \App\Services\AmazonOrderService(1);
+                                    $shippingAddress = $amazonService->fetchOrderAddress($order->order_number);
+                                    
+                                    if ($shippingAddress) {
+                                        // Get buyer name from order details if address name is empty
+                                        $buyerName = null;
+                                        if (empty($shippingAddress['Name'])) {
+                                            try {
+                                                $amazonService->ensureAccessToken();
+                                                $orderEndpoint = env('AMAZON_BASE_URL', 'https://sellingpartnerapi-na.amazon.com') . "/orders/v0/orders/{$order->order_number}";
+                                                $orderResponse = Http::withHeaders([
+                                                    'Authorization' => 'Bearer ' . $integration->access_token,
+                                                    'x-amz-access-token' => $integration->access_token,
+                                                ])->get($orderEndpoint);
+                                                
+                                                if ($orderResponse->successful()) {
+                                                    $orderData = $orderResponse->json()['payload'] ?? [];
+                                                    $buyerName = $orderData['BuyerInfo']['BuyerName'] ?? $orderData['BuyerName'] ?? null;
+                                                }
+                                            } catch (\Exception $e) {
+                                                // Silently fail
+                                            }
+                                        }
+                                        
+                                        // Build eDesk-like structure from Amazon data
+                                        $edeskCustomer = [
+                                            'name' => trim($shippingAddress['Name'] ?? '') ?: trim($buyerName ?? ''),
+                                            'address1' => $shippingAddress['AddressLine1'] ?? null,
+                                            'address2' => $shippingAddress['AddressLine2'] ?? null,
+                                            'city' => $shippingAddress['City'] ?? null,
+                                            'state' => $shippingAddress['StateOrRegion'] ?? null,
+                                            'postal_code' => $shippingAddress['PostalCode'] ?? null,
+                                            'country' => $shippingAddress['CountryCode'] ?? null,
+                                            'phone' => $shippingAddress['Phone'] ?? null,
+                                        ];
+                                        
+                                        Log::info('Auto Amazon fetch: Used as fallback for eDesk', [
+                                            'order_id' => $order->id,
+                                            'order_number' => $order->order_number,
+                                        ]);
+                                    }
+                                }
+                            } catch (\Exception $e) {
+                                Log::debug('Auto Amazon fallback failed', [
+                                    'order_id' => $order->id,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
+                        }
+                        
+                        if ($edeskCustomer && (!empty($edeskCustomer['name']) || !empty($edeskCustomer['address1']))) {
+                            $updateData = [];
+                            
+                            // Check if current recipient name is invalid
+                            $currentName = $order->recipient_name ?? '';
+                            $isInvalidName = false;
+                            if (!empty($currentName)) {
+                                $invalidPatterns = [
+                                    'sent a message',
+                                    'about',
+                                    'buyer wants',
+                                    'wants to cancel',
+                                    'cancel an order',
+                                    'a buyer',
+                                    'the buyer',
+                                ];
+                                foreach ($invalidPatterns as $pattern) {
+                                    if (stripos($currentName, $pattern) !== false) {
+                                        $isInvalidName = true;
+                                        break;
+                                    }
+                                }
+                                // Also check if it's too long (likely a message subject)
+                                if (strlen($currentName) > 80) {
+                                    $isInvalidName = true;
+                                }
+                            }
+                            
+                            // Update recipient name if missing or invalid
+                            if ($isInvalidName || empty($order->recipient_name) || 
+                                $order->recipient_name === 'null' || 
+                                $order->recipient_name === 'NULL') {
+                                $name = trim($edeskCustomer['name'] ?? '');
+                                // Only use if it's a valid name (not a message subject)
+                                if (!empty($name) && strlen($name) < 80) {
+                                    $invalidPatterns = [
+                                        'sent a message', 
+                                        'about', 
+                                        'buyer wants', 
+                                        'wants to cancel', 
+                                        'cancel an order', 
+                                        'a buyer', 
+                                        'the buyer',
+                                        'buyer wants to',
+                                        'wants to',
+                                    ];
+                                    $isValid = true;
+                                    foreach ($invalidPatterns as $pattern) {
+                                        if (stripos($name, $pattern) !== false) {
+                                            $isValid = false;
+                                            Log::info('Auto eDesk fetch: Rejected invalid name', [
+                                                'order_id' => $order->id,
+                                                'name' => $name,
+                                                'pattern' => $pattern,
+                                            ]);
+                                            break;
+                                        }
+                                    }
+                                    // Also check if it starts with "A buyer" or "The buyer" (case insensitive)
+                                    $nameLower = strtolower($name);
+                                    if ($isValid && (strpos($nameLower, 'a buyer') === 0 || strpos($nameLower, 'the buyer') === 0)) {
+                                        $isValid = false;
+                                        Log::info('Auto eDesk fetch: Rejected name starting with "A buyer" or "The buyer"', [
+                                            'order_id' => $order->id,
+                                            'name' => $name,
+                                        ]);
+                                    }
+                                    // Check for common ticket subject patterns
+                                    if ($isValid && (
+                                        strpos($nameLower, 'wants to') !== false ||
+                                        strpos($nameLower, 'sent a message') !== false ||
+                                        preg_match('/^[a-z0-9]+ sent a message/i', $name) ||
+                                        preg_match('/about .*#\d+/i', $name)
+                                    )) {
+                                        $isValid = false;
+                                        Log::info('Auto eDesk fetch: Rejected name matching ticket subject pattern', [
+                                            'order_id' => $order->id,
+                                            'name' => $name,
+                                        ]);
+                                    }
+                                    if ($isValid) {
+                                        $updateData['recipient_name'] = $name;
+                                    } else {
+                                        // Clear invalid name to null
+                                        $updateData['recipient_name'] = null;
+                                    }
+                                } else {
+                                    // If name is empty or too long, clear it
+                                    if ($isInvalidName) {
+                                        $updateData['recipient_name'] = null;
+                                    }
+                                }
+                            }
+                            
+                            // Update address fields if missing
+                            if (empty($order->ship_address1) && !empty($edeskCustomer['address1'])) {
+                                $updateData['ship_address1'] = $edeskCustomer['address1'];
+                            }
+                            if (empty($order->ship_address2) && !empty($edeskCustomer['address2'])) {
+                                $updateData['ship_address2'] = $edeskCustomer['address2'];
+                            }
+                            if (empty($order->ship_city) && !empty($edeskCustomer['city'])) {
+                                $updateData['ship_city'] = $edeskCustomer['city'];
+                            }
+                            if (empty($order->ship_state) && !empty($edeskCustomer['state'])) {
+                                $updateData['ship_state'] = $edeskCustomer['state'];
+                            }
+                            if (empty($order->ship_postal_code) && !empty($edeskCustomer['postal_code'])) {
+                                $updateData['ship_postal_code'] = $edeskCustomer['postal_code'];
+                            }
+                            if (empty($order->ship_country) && !empty($edeskCustomer['country'])) {
+                                $updateData['ship_country'] = $edeskCustomer['country'];
+                            }
+                            if (empty($order->recipient_phone) && !empty($edeskCustomer['phone'])) {
+                                $updateData['recipient_phone'] = $edeskCustomer['phone'];
+                            }
+                            if (empty($order->recipient_email) && !empty($edeskCustomer['email'])) {
+                                $updateData['recipient_email'] = $edeskCustomer['email'];
+                            }
+                            
+                            if (!empty($updateData)) {
+                                // Update in database
+                                Order::where('id', $order->id)->update($updateData);
+                                
+                                // Update the order object in the collection so it reflects in the response
+                                foreach ($updateData as $key => $value) {
+                                    $order->$key = $value;
+                                }
+                                
+                                Log::info('Auto-updated order with eDesk data', [
+                                    'order_id' => $order->id,
+                                    'order_number' => $order->order_number,
+                                    'updated_fields' => array_keys($updateData),
+                                    'new_recipient_name' => $order->recipient_name ?? 'NULL',
+                                ]);
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // Silently fail - don't break the page if eDesk fetch fails
+                        Log::error('Auto eDesk fetch failed for order', [
+                            'order_id' => $order->id,
+                            'order_number' => $order->order_number,
+                            'error' => $e->getMessage(),
+                            'trace' => substr($e->getTraceAsString(), 0, 500),
+                        ]);
+                    }
+                }
+            }
+        }
+        
         // Convert to array format and add INV value, dim-wt data, and best rates to each order
         $ordersArray = $orders->map(function ($order) use ($orderInvMap, $orderDimWtMap, $bestRatesDMap, $bestRatesOMap) {
             // Get order ID first
