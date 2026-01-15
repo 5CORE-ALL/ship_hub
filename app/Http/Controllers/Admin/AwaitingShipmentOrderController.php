@@ -78,28 +78,66 @@ class AwaitingShipmentOrderController extends Controller
     public function getAwaitingShipmentOrders(Request $request)
     {
     try {
-        // Base query for orders
-        $baseQuery = Order::query()
-            ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
+        // Build base query - use simple join and handle duplicates with groupBy
+        // This is faster than subqueries in joins
+        $query = Order::query()
+            ->select(
+                'orders.*',
+                DB::raw('MAX(order_items.product_name) as product_name'),
+                DB::raw('MAX(order_items.product_name) as item_name'),
+                DB::raw('MAX(order_items.original_weight) as original_weight'),
+                DB::raw('MAX(order_items.weight) as item_weight'),
+                DB::raw('MAX(order_items.quantity_ordered) as quantity_ordered'),
+                DB::raw('MAX(order_items.sku) as item_sku')
+            )
+            ->leftJoin('order_items', 'orders.id', '=', 'order_items.order_id')
+            ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted'])
+            ->groupBy('orders.id');
         
-        // Apply filters to base query
+        // Apply filters
         if (!empty($request->marketplace)) {
-            $baseQuery->where('orders.marketplace', $request->marketplace);
+            $query->where('orders.marketplace', $request->marketplace);
         }
         if (!empty($request->from_date)) {
-            $baseQuery->whereDate('orders.created_at', '>=', $request->from_date);
+            $query->whereDate('orders.created_at', '>=', $request->from_date);
         }
         if (!empty($request->to_date)) {
-            $baseQuery->whereDate('orders.created_at', '<=', $request->to_date);
+            $query->whereDate('orders.created_at', '<=', $request->to_date);
         }
         if (!empty($request->status)) {
-            $baseQuery->where('orders.order_status', $request->status);
+            $query->where('orders.order_status', $request->status);
         }
         
-        // Handle search - search in orders and order_items
+        // Handle search
         if (!empty($request->search['value'])) {
             $search = $request->search['value'];
-            $baseQuery->where(function ($q) use ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('orders.order_number', 'like', "%{$search}%")
+                  ->orWhere('order_items.sku', 'like', "%{$search}%")
+                  ->orWhere('order_items.product_name', 'like', "%{$search}%");
+            });
+        }
+        
+        // Get total count (before pagination) - use a simpler count query
+        $countQuery = Order::query()
+            ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
+        
+        // Apply same filters for count
+        if (!empty($request->marketplace)) {
+            $countQuery->where('orders.marketplace', $request->marketplace);
+        }
+        if (!empty($request->from_date)) {
+            $countQuery->whereDate('orders.created_at', '>=', $request->from_date);
+        }
+        if (!empty($request->to_date)) {
+            $countQuery->whereDate('orders.created_at', '<=', $request->to_date);
+        }
+        if (!empty($request->status)) {
+            $countQuery->where('orders.order_status', $request->status);
+        }
+        if (!empty($request->search['value'])) {
+            $search = $request->search['value'];
+            $countQuery->where(function ($q) use ($search) {
                 $q->where('orders.order_number', 'like', "%{$search}%")
                   ->orWhereExists(function ($subQuery) use ($search) {
                       $subQuery->select(DB::raw(1))
@@ -113,52 +151,15 @@ class AwaitingShipmentOrderController extends Controller
             });
         }
         
-        // Get total count before pagination (distinct orders)
-        $totalRecords = $baseQuery->distinct('orders.id')->count('orders.id');
+        $totalRecords = $countQuery->count('orders.id');
         
-        // Apply sorting to base query
+        // Apply sorting
         if (!empty($request->order)) {
             $orderColumnIndex = $request->order[0]['column'];
             $orderColumnName = $request->columns[$orderColumnIndex]['data'] ?? 'created_at';
             $orderDir = $request->order[0]['dir'] ?? 'desc';
             
-            // Handle column names - add orders. prefix if not already present
-            if (strpos($orderColumnName, '.') === false && $orderColumnName !== 'id') {
-                $orderColumnName = 'orders.' . $orderColumnName;
-            } elseif ($orderColumnName === 'id') {
-                $orderColumnName = 'orders.id';
-            }
-            
-            $baseQuery->orderBy($orderColumnName, $orderDir);
-        } else {
-            $baseQuery->orderBy('orders.created_at', 'desc');
-        }
-        
-        // Get order IDs with pagination
-        $orderIds = $baseQuery->distinct('orders.id')
-            ->pluck('orders.id')
-            ->skip($request->start ?? 0)
-            ->take($request->length ?? 10)
-            ->toArray();
-        
-        // Now get full order data with first item details using a subquery
-        $query = Order::query()
-            ->select(
-                'orders.*',
-                DB::raw('(SELECT product_name FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as product_name'),
-                DB::raw('(SELECT product_name FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as item_name'),
-                DB::raw('(SELECT original_weight FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as original_weight'),
-                DB::raw('(SELECT weight FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as item_weight'),
-                DB::raw('(SELECT quantity_ordered FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as quantity_ordered'),
-                DB::raw('(SELECT sku FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as item_sku')
-            )
-            ->whereIn('orders.id', $orderIds);
-        // Maintain the same sort order
-        if (!empty($request->order)) {
-            $orderColumnIndex = $request->order[0]['column'];
-            $orderColumnName = $request->columns[$orderColumnIndex]['data'] ?? 'created_at';
-            $orderDir = $request->order[0]['dir'] ?? 'desc';
-            
+            // Handle column names
             if (strpos($orderColumnName, '.') === false && $orderColumnName !== 'id') {
                 $orderColumnName = 'orders.' . $orderColumnName;
             } elseif ($orderColumnName === 'id') {
@@ -170,7 +171,11 @@ class AwaitingShipmentOrderController extends Controller
             $query->orderBy('orders.created_at', 'desc');
         }
         
-        $orders = $query->get();
+        // Apply pagination
+        $orders = $query
+            ->skip($request->start ?? 0)
+            ->take($request->length ?? 50)
+            ->get();
 
         // Automatically fetch eDesk data for Amazon orders with missing recipient names (limit to first 10 to avoid performance issues)
         $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
