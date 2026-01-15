@@ -11,7 +11,7 @@ class ForceLogoutAfter6Hours
 {
     /**
      * Handle an incoming request.
-     * Force logout users after exactly 6 hours from login time, regardless of activity.
+     * Force logout users after exactly 12 hours from login time, regardless of activity.
      *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
@@ -29,10 +29,10 @@ class ForceLogoutAfter6Hours
             
             // Calculate time elapsed since login
             $timeElapsed = now()->timestamp - $loginTime;
-            $sixHoursInSeconds = 6 * 60 * 60; // 6 hours = 21600 seconds
+            $twelveHoursInSeconds = 12 * 60 * 60; // 12 hours = 43200 seconds
             
-            // Force logout if 6 hours have passed
-            if ($timeElapsed >= $sixHoursInSeconds) {
+            // Force logout if 12 hours have passed
+            if ($timeElapsed >= $twelveHoursInSeconds) {
                 Auth::guard('web')->logout();
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();

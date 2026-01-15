@@ -29,7 +29,7 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
         
-        // Store login timestamp for 6-hour absolute logout
+        // Store login timestamp for 12-hour absolute logout
         $request->session()->put('login_time', now()->timestamp);
 
         return redirect()->intended(RouteServiceProvider::HOME);

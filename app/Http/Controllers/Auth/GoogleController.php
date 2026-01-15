@@ -56,7 +56,7 @@ class GoogleController extends Controller
                 }
 
                 Auth::login($user, false);
-                // Store login timestamp for 6-hour absolute logout
+                // Store login timestamp for 12-hour absolute logout
                 $request->session()->put('login_time', now()->timestamp);
                 return redirect()->route('dashboard');
             }
@@ -77,7 +77,7 @@ class GoogleController extends Controller
             ]);
 
             Auth::login($userData, false);
-            // Store login timestamp for 6-hour absolute logout
+            // Store login timestamp for 12-hour absolute logout
             $request->session()->put('login_time', now()->timestamp);
             return redirect()->route('dashboard');
 
