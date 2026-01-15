@@ -77,111 +77,162 @@ class AwaitingShipmentOrderController extends Controller
     }
     public function getAwaitingShipmentOrders(Request $request)
     {
-    $query = Order::query()
-        ->select(
-            'orders.*',
-            'order_items.product_name',
-            'order_items.original_weight',
-            'order_items.weight as item_weight',
-            'order_items.quantity_ordered'
-        )
-        ->leftJoin('order_items', 'orders.id', '=', 'order_items.order_id')
-        ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
-    if (!empty($request->marketplace)) {
-        $query->where('orders.marketplace', $request->marketplace);
-    }
-    if (!empty($request->from_date)) {
-        $query->whereDate('orders.created_at', '>=', $request->from_date);
-    }
-
-    if (!empty($request->to_date)) {
-        $query->whereDate('orders.created_at', '<=', $request->to_date);
-    }
-    if (!empty($request->status)) {
-        $query->where('orders.order_status', $request->status);
-    }
-    if (!empty($request->search['value'])) {
-        $search = $request->search['value'];
-        $query->where(function ($q) use ($search) {
-            $q->where('orders.order_number', 'like', "%{$search}%")
-              ->orWhere('order_items.sku', 'like', "%{$search}%")
-              ->orWhere('order_items.product_name', 'like', "%{$search}%");
-        });
-    }
-    $totalRecords = $query->count();
-    if (!empty($request->order)) {
-        $orderColumnIndex = $request->order[0]['column'];
-        $orderColumnName = $request->columns[$orderColumnIndex]['data'];
-        $orderDir = $request->order[0]['dir'];
-        $query->orderBy($orderColumnName, $orderDir);
-    } else {
-        $query->orderBy('orders.created_at', 'desc');
-    }
-    $orders = $query
-        ->skip($request->start)
-        ->take($request->length)
-        ->get();
-
-    // Automatically fetch eDesk data for Amazon orders with missing recipient names (limit to first 10 to avoid performance issues)
-    $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
-    if ($edeskService) {
-        $ordersToUpdate = $orders->filter(function ($order) {
-            return $order->marketplace === 'amazon' && 
-                   (empty($order->recipient_name) || $order->recipient_name === 'null' || $order->recipient_name === 'NULL');
-        })->take(10); // Limit to 10 orders per page load to avoid performance issues
+    try {
+        // Base query for orders
+        $baseQuery = Order::query()
+            ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
         
-        foreach ($ordersToUpdate as $order) {
-            try {
-                $edeskCustomer = $edeskService->getCustomerDetailsByOrderId($order->order_number);
-                if ($edeskCustomer) {
-                    $updateData = [];
-                    if (!empty($edeskCustomer['name'])) {
-                        $updateData['recipient_name'] = trim($edeskCustomer['name']);
+        // Apply filters to base query
+        if (!empty($request->marketplace)) {
+            $baseQuery->where('orders.marketplace', $request->marketplace);
+        }
+        if (!empty($request->from_date)) {
+            $baseQuery->whereDate('orders.created_at', '>=', $request->from_date);
+        }
+        if (!empty($request->to_date)) {
+            $baseQuery->whereDate('orders.created_at', '<=', $request->to_date);
+        }
+        if (!empty($request->status)) {
+            $baseQuery->where('orders.order_status', $request->status);
+        }
+        
+        // Handle search - search in orders and order_items
+        if (!empty($request->search['value'])) {
+            $search = $request->search['value'];
+            $baseQuery->where(function ($q) use ($search) {
+                $q->where('orders.order_number', 'like', "%{$search}%")
+                  ->orWhereExists(function ($subQuery) use ($search) {
+                      $subQuery->select(DB::raw(1))
+                          ->from('order_items')
+                          ->whereColumn('order_items.order_id', 'orders.id')
+                          ->where(function ($itemQuery) use ($search) {
+                              $itemQuery->where('order_items.sku', 'like', "%{$search}%")
+                                       ->orWhere('order_items.product_name', 'like', "%{$search}%");
+                          });
+                  });
+            });
+        }
+        
+        // Get total count before pagination (distinct orders)
+        $totalRecords = $baseQuery->distinct('orders.id')->count('orders.id');
+        
+        // Apply sorting to base query
+        if (!empty($request->order)) {
+            $orderColumnIndex = $request->order[0]['column'];
+            $orderColumnName = $request->columns[$orderColumnIndex]['data'] ?? 'created_at';
+            $orderDir = $request->order[0]['dir'] ?? 'desc';
+            
+            // Handle column names - add orders. prefix if not already present
+            if (strpos($orderColumnName, '.') === false && $orderColumnName !== 'id') {
+                $orderColumnName = 'orders.' . $orderColumnName;
+            } elseif ($orderColumnName === 'id') {
+                $orderColumnName = 'orders.id';
+            }
+            
+            $baseQuery->orderBy($orderColumnName, $orderDir);
+        } else {
+            $baseQuery->orderBy('orders.created_at', 'desc');
+        }
+        
+        // Get order IDs with pagination
+        $orderIds = $baseQuery->distinct('orders.id')
+            ->pluck('orders.id')
+            ->skip($request->start ?? 0)
+            ->take($request->length ?? 10)
+            ->toArray();
+        
+        // Now get full order data with first item details using a subquery
+        $query = Order::query()
+            ->select(
+                'orders.*',
+                DB::raw('(SELECT product_name FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as product_name'),
+                DB::raw('(SELECT product_name FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as item_name'),
+                DB::raw('(SELECT original_weight FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as original_weight'),
+                DB::raw('(SELECT weight FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as item_weight'),
+                DB::raw('(SELECT quantity_ordered FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as quantity_ordered'),
+                DB::raw('(SELECT sku FROM order_items WHERE order_items.order_id = orders.id LIMIT 1) as item_sku')
+            )
+            ->whereIn('orders.id', $orderIds);
+        // Maintain the same sort order
+        if (!empty($request->order)) {
+            $orderColumnIndex = $request->order[0]['column'];
+            $orderColumnName = $request->columns[$orderColumnIndex]['data'] ?? 'created_at';
+            $orderDir = $request->order[0]['dir'] ?? 'desc';
+            
+            if (strpos($orderColumnName, '.') === false && $orderColumnName !== 'id') {
+                $orderColumnName = 'orders.' . $orderColumnName;
+            } elseif ($orderColumnName === 'id') {
+                $orderColumnName = 'orders.id';
+            }
+            
+            $query->orderBy($orderColumnName, $orderDir);
+        } else {
+            $query->orderBy('orders.created_at', 'desc');
+        }
+        
+        $orders = $query->get();
+
+        // Automatically fetch eDesk data for Amazon orders with missing recipient names (limit to first 10 to avoid performance issues)
+        $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
+        if ($edeskService) {
+            $ordersToUpdate = $orders->filter(function ($order) {
+                return $order->marketplace === 'amazon' && 
+                       (empty($order->recipient_name) || $order->recipient_name === 'null' || $order->recipient_name === 'NULL');
+            })->take(10); // Limit to 10 orders per page load to avoid performance issues
+            
+            foreach ($ordersToUpdate as $order) {
+                try {
+                    $edeskCustomer = $edeskService->getCustomerDetailsByOrderId($order->order_number);
+                    if ($edeskCustomer) {
+                        $updateData = [];
+                        if (!empty($edeskCustomer['name'])) {
+                            $updateData['recipient_name'] = trim($edeskCustomer['name']);
+                        }
+                        if (empty($order->ship_address1) && !empty($edeskCustomer['address1'])) {
+                            $updateData['ship_address1'] = $edeskCustomer['address1'];
+                        }
+                        if (empty($order->ship_address2) && !empty($edeskCustomer['address2'])) {
+                            $updateData['ship_address2'] = $edeskCustomer['address2'];
+                        }
+                        if (empty($order->ship_city) && !empty($edeskCustomer['city'])) {
+                            $updateData['ship_city'] = $edeskCustomer['city'];
+                        }
+                        if (empty($order->ship_state) && !empty($edeskCustomer['state'])) {
+                            $updateData['ship_state'] = $edeskCustomer['state'];
+                        }
+                        if (empty($order->ship_postal_code) && !empty($edeskCustomer['postal_code'])) {
+                            $updateData['ship_postal_code'] = $edeskCustomer['postal_code'];
+                        }
+                        if (empty($order->ship_country) && !empty($edeskCustomer['country'])) {
+                            $updateData['ship_country'] = $edeskCustomer['country'];
+                        }
+                        if (empty($order->recipient_phone) && !empty($edeskCustomer['phone'])) {
+                            $updateData['recipient_phone'] = $edeskCustomer['phone'];
+                        }
+                        if (empty($order->recipient_email) && !empty($edeskCustomer['email'])) {
+                            $updateData['recipient_email'] = $edeskCustomer['email'];
+                        }
+                        if (!empty($updateData)) {
+                            Order::where('id', $order->id)->update($updateData);
+                            // Refresh the order object with updated data
+                            $order = $order->fresh();
+                            Log::info('Auto-updated order with eDesk data', [
+                                'order_id' => $order->id,
+                                'order_number' => $order->order_number,
+                                'updated_fields' => array_keys($updateData),
+                            ]);
+                        }
                     }
-                    if (empty($order->ship_address1) && !empty($edeskCustomer['address1'])) {
-                        $updateData['ship_address1'] = $edeskCustomer['address1'];
-                    }
-                    if (empty($order->ship_address2) && !empty($edeskCustomer['address2'])) {
-                        $updateData['ship_address2'] = $edeskCustomer['address2'];
-                    }
-                    if (empty($order->ship_city) && !empty($edeskCustomer['city'])) {
-                        $updateData['ship_city'] = $edeskCustomer['city'];
-                    }
-                    if (empty($order->ship_state) && !empty($edeskCustomer['state'])) {
-                        $updateData['ship_state'] = $edeskCustomer['state'];
-                    }
-                    if (empty($order->ship_postal_code) && !empty($edeskCustomer['postal_code'])) {
-                        $updateData['ship_postal_code'] = $edeskCustomer['postal_code'];
-                    }
-                    if (empty($order->ship_country) && !empty($edeskCustomer['country'])) {
-                        $updateData['ship_country'] = $edeskCustomer['country'];
-                    }
-                    if (empty($order->recipient_phone) && !empty($edeskCustomer['phone'])) {
-                        $updateData['recipient_phone'] = $edeskCustomer['phone'];
-                    }
-                    if (empty($order->recipient_email) && !empty($edeskCustomer['email'])) {
-                        $updateData['recipient_email'] = $edeskCustomer['email'];
-                    }
-                    if (!empty($updateData)) {
-                        $order->update($updateData);
-                        $order->refresh(); // Refresh to get updated data
-                        Log::info('Auto-updated order with eDesk data', [
-                            'order_id' => $order->id,
-                            'order_number' => $order->order_number,
-                            'updated_fields' => array_keys($updateData),
-                        ]);
-                    }
+                } catch (\Exception $e) {
+                    // Silently fail - don't break the page if eDesk fetch fails
+                    Log::debug('Auto eDesk fetch failed for order', [
+                        'order_id' => $order->id,
+                        'order_number' => $order->order_number,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
-            } catch (\Exception $e) {
-                // Silently fail - don't break the page if eDesk fetch fails
-                Log::debug('Auto eDesk fetch failed for order', [
-                    'order_id' => $order->id,
-                    'order_number' => $order->order_number,
-                    'error' => $e->getMessage(),
-                ]);
             }
         }
-    }
 
     // Add dimension columns (L, W, H, WT) to each order row
     $orders = $orders->map(function ($order) {
@@ -200,12 +251,27 @@ class AwaitingShipmentOrderController extends Controller
         return $order;
     });
 
-    return response()->json([
-        'draw' => intval($request->draw),
-        'recordsTotal' => $totalRecords,
-        'recordsFiltered' => $totalRecords,
-        'data' => $orders,
-    ]);
+        return response()->json([
+            'draw' => intval($request->draw ?? 1),
+            'recordsTotal' => $totalRecords,
+            'recordsFiltered' => $totalRecords,
+            'data' => $orders,
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Error fetching awaiting shipment orders', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+            'request' => $request->all()
+        ]);
+        
+        return response()->json([
+            'draw' => intval($request->draw ?? 1),
+            'recordsTotal' => 0,
+            'recordsFiltered' => 0,
+            'data' => [],
+            'error' => 'An error occurred while loading data. Please check the logs for details.'
+        ], 500);
+    }
 }
 public function getCarrierNameByServiceCode($serviceCode)
 {
