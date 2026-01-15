@@ -67,6 +67,7 @@
     color: #fff !important;
     font-weight: bold;
     vertical-align: bottom;
+    text-align: center !important;
 }
 
 /* Vertical headers for fixed columns - rotated 180 degrees */
@@ -134,6 +135,49 @@
     color: #fff;
     border-color: #3f51b5;
 }
+/* Hide theme customizer */
+.switcher-body {
+    display: none !important;
+}
+
+/* Copy order number button styles */
+.copy-order-number-btn {
+    color: #0d6efd !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 2px 6px !important;
+    min-width: 28px !important;
+    height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    transition: all 0.2s !important;
+    font-size: 14px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.copy-order-number-btn:hover {
+    background: #0d6efd !important;
+    color: #fff !important;
+    transform: scale(1.1);
+}
+
+.copy-order-number-btn:active {
+    transform: scale(0.95);
+}
+
+.copy-order-number-btn i {
+    font-size: 12px !important;
+    line-height: 1 !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
 /* Verify button styles */
 .verify-btn {
     padding: 2px 6px;
@@ -188,7 +232,7 @@
 /* Bulk dimension input styles */
 .bulk-dimension-inputs {
     display: none;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
 }
 .bulk-dimension-inputs.active {
@@ -196,8 +240,6 @@
 }
 .bulk-dimension-inputs input {
     width: 100px;
-    padding: 0.5rem;
-    font-size: 0.9rem;
 }
 /* Carrier grouping styles */
 .carrier-group-header {
@@ -381,79 +423,67 @@
         </div>
     </div>
   
-    <div class="page-title d-flex justify-content-between align-items-center mb-3">
-            <div class="d-flex align-items-center gap-2">
-                <h5 class="mb-0">Awaiting Shipment <span class="badge bg-primary ms-2">({{ $pendingCount ?? 0 }})</span> <span class="badge {{ ($overdueCount ?? 0) > 0 ? 'bg-danger' : 'bg-success' }} ms-2">({{ $overdueCount ?? 0 }})</span></h5>
-                <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 1.2rem;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
-            </div>
+    <!-- Page Title Row -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
         <div class="d-flex align-items-center gap-2">
-            <!-- Weight Filter Buttons -->
-            <div class="btn-group" role="group" aria-label="Weight Filter">
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="all">All Weights</button>
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="0.25">0.25lb</button>
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="0.5">0.5lb</button>
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="0.75">0.75lb</button>
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="1-6">1lb–5lb</button>
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="6-20">6lb–20lb</button>
-                <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="20+">>20lb</button>
-            </div>
-            <!-- CBIN Filter Button -->
-            <button type="button" class="btn btn-outline-danger cbin-filter-btn" id="cbinFilterBtn" title="Show only rows with red CBIN (D) values">
-                <i class="bi bi-funnel-fill"></i> Red CBIN (D) <span id="redCbinCount" class="badge bg-danger ms-1">0</span>
-            </button>
-            <!-- Dimension Column Toggle Buttons -->
-            <button type="button" class="btn btn-outline-secondary dimension-toggle-btn" id="toggleDDimensions" data-dimension-set="d" title="Toggle L (D), W (D), H (D), WT (D) columns">
-                <i class="bi bi-eye"></i> Show D Dimensions
-            </button>
-            <button type="button" class="btn btn-outline-secondary dimension-toggle-btn" id="toggleRegularDimensions" data-dimension-set="regular" title="Toggle L, W, H, WT columns">
-                <i class="bi bi-eye"></i> Show Regular Dimensions
-            </button>
-            <!-- Bulk Dimension Inputs -->
-            <div class="bulk-dimension-inputs" id="bulkDimensionInputs">
-                <input type="number" class="form-control" id="bulkHeight" placeholder="Height" min="0" step="0.01">
-                <input type="number" class="form-control" id="bulkLength" placeholder="Length" min="0" step="0.01">
-                <input type="number" class="form-control" id="bulkWidth" placeholder="Width" min="0" step="0.01">
-                <input type="number" class="form-control" id="bulkWeight" placeholder="Weight" min="0" step="0.01">
-                <button type="button" class="btn btn-primary bulk-update-dimensions-btn" disabled>Update Dimensions Bulk</button>
-            </div>
-            <!-- Existing Buttons -->
-            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rightModal">
-                <i class="bi bi-funnel"></i> Filter
-            </button>
-          <!--  @can('buy_shipping')
-                <button type="button" class="btn btn-primary bulk-buy-shipping-btn">
-                    Buy Bulk Shipping
-                </button>
-            @endcan
-           <button type="button" class="btn btn-primary bulk-mark-ship-btn">
-                Bulk Mark as Ship
-            </button> -->
+            <h5 class="mb-0">Awaiting Shipment</h5>
+            <span class="badge bg-primary" style="font-size: 0.875rem; padding: 0.35rem 0.65rem;">{{ $pendingCount ?? 0 }}</span>
+            <span class="badge {{ ($overdueCount ?? 0) > 0 ? 'bg-danger' : 'bg-success' }}" style="font-size: 0.875rem; padding: 0.35rem 0.65rem;">{{ $overdueCount ?? 0 }}</span>
+            <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 1.1rem;" data-bs-toggle="modal" data-bs-target="#overdueHistoryModal" title="View Overdue Count History"></i>
         </div>
-    </div>
-<!--     <div class="d-flex gap-2 flex-wrap mb-3">
-          @can('buy_shipping')
-                <button type="button" class="btn btn-primary bulk-buy-shipping-btn">
-                    Buy Bulk Shipping
-                </button>
-            @endcan
-           <button type="button" class="btn btn-primary bulk-mark-ship-btn">
-                Bulk Mark as Ship
-            </button>
-</div> -->
-<div class="d-flex gap-2 flex-wrap mb-3">
-    @can('buy_shipping')
-        <button type="button" class="btn btn-primary bulk-buy-shipping-btn">
-            Buy Bulk Shipping
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#rightModal">
+            <i class="bi bi-funnel"></i> Filter
         </button>
-    @endcan
-    <button type="button" class="btn btn-primary bulk-mark-ship-btn">
-        Bulk Mark as Ship
-    </button>
-    <!-- New selected count display -->
-    <span id="selectedCountDisplay" class="align-self-center ms-3 text-muted small fw-bold">
-        <i class="bi bi-check-square"></i> <span id="selectedCount">0</span> selected
-    </span>
-</div>
+    </div>
+
+    <!-- Filter and Toggle Buttons Row -->
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <!-- Weight Filter Buttons -->
+        <div class="btn-group btn-group-sm" role="group" aria-label="Weight Filter">
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="all">All Weights</button>
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="0.25">0.25lb</button>
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="0.5">0.5lb</button>
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="0.75">0.75lb</button>
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="1-6">1lb–5lb</button>
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="6-20">6lb–20lb</button>
+            <button type="button" class="btn btn-outline-primary weight-filter-btn" data-weight-range="20+">>20lb</button>
+        </div>
+        
+        <!-- CBIN Filter Button -->
+        <button type="button" class="btn btn-outline-danger btn-sm cbin-filter-btn" id="cbinFilterBtn" title="Show only rows with red CBIN (DECL) values">
+            <i class="bi bi-funnel-fill"></i> Red CBIN (DECL) <span id="redCbinCount" class="badge bg-danger" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">0</span>
+        </button>
+        
+        <!-- Dimension Column Toggle Buttons -->
+        <button type="button" class="btn btn-outline-secondary btn-sm dimension-toggle-btn" id="toggleDDimensions" data-dimension-set="d" title="Toggle L (DECL), W (DECL), H (DECL), WT (DECL) columns">
+            <i class="bi bi-eye"></i> Show DECL Dimensions
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm dimension-toggle-btn" id="toggleRegularDimensions" data-dimension-set="regular" title="Toggle L, W, H, WT columns">
+            <i class="bi bi-eye"></i> Show DIM
+        </button>
+    </div>
+
+    <!-- Bulk Actions Row -->
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        @can('buy_shipping')
+            <button type="button" class="btn btn-primary btn-sm bulk-buy-shipping-btn">
+                Buy Bulk Shipping
+            </button>
+        @endcan
+        <button type="button" class="btn btn-primary btn-sm bulk-mark-ship-btn">
+            Bulk Mark as Ship
+        </button>
+        
+        <!-- Bulk Dimension Inputs -->
+        <div class="bulk-dimension-inputs d-flex align-items-center gap-2" id="bulkDimensionInputs">
+            <input type="number" class="form-control form-control-sm" id="bulkHeight" placeholder="Height" min="0" step="0.01" style="width: 100px;">
+            <input type="number" class="form-control form-control-sm" id="bulkLength" placeholder="Length" min="0" step="0.01" style="width: 100px;">
+            <input type="number" class="form-control form-control-sm" id="bulkWidth" placeholder="Width" min="0" step="0.01" style="width: 100px;">
+            <input type="number" class="form-control form-control-sm" id="bulkWeight" placeholder="Weight" min="0" step="0.01" style="width: 100px;">
+            <button type="button" class="btn btn-primary btn-sm bulk-update-dimensions-btn" disabled>Update Dimensions Bulk</button>
+        </div>
+        
+    </div>
     <div class="modal right fade" id="rightModal" tabindex="-1" role="dialog">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
@@ -474,7 +504,18 @@
                     <div class="mb-3">
                         <label class="form-label">Platform</label>
                        <select class="form-select" id="filterMarketplace" name="filterMarketplace[]" multiple>
-                            @foreach($marketplaces as $channel)
+                            @php
+                                $uniqueMarketplaces = [];
+                                $seen = [];
+                                foreach($marketplaces as $channel) {
+                                    $lower = strtolower($channel);
+                                    if (!in_array($lower, $seen)) {
+                                        $seen[] = $lower;
+                                        $uniqueMarketplaces[] = $channel;
+                                    }
+                                }
+                            @endphp
+                            @foreach($uniqueMarketplaces as $channel)
                                 <option value="{{ strtolower($channel) }}">{{ ucfirst($channel) }}</option>
                             @endforeach
                         </select>
@@ -506,16 +547,16 @@
                         <th>Order Date</th>
                         <th>SKU</th>
                         <th><input type="checkbox" id="selectAllD"></th>
-                        <th>Best Rate (D)</th>
+                        <th>Best Rate (DECL)</th>
                         <th><input type="checkbox" id="selectAllO"></th>
-                        <th>Best Rate (O)</th>
+                        <th>Best Rate (DIM)</th>
                         <th>Recipient</th>
-                        <th>L (D)</th>
-                        <th>W (D)</th>
-                        <th>H (D)</th>
-                        <th>WT (D)</th>
+                        <th>L (DECL)</th>
+                        <th>W (DECL)</th>
+                        <th>H (DECL)</th>
+                        <th>WT (DECL)</th>
                         <th>WT S</th>
-                        <th>CBIN (D)</th>
+                        <th>CBIN (DECL)</th>
                         <th>H</th>
                         <th>W</th>
                         <th>L</th>
@@ -532,6 +573,37 @@
         </div>
     </div>
 </div>
+    <!-- Edit Dimension Modal -->
+    <div class="modal fade" id="editDimensionModal" tabindex="-1" aria-labelledby="editDimensionModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editDimensionModalLabel">Edit Dimension</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editDimensionForm">
+                        <input type="hidden" id="editDimensionOrderId" name="order_id">
+                        <input type="hidden" id="editDimensionField" name="field">
+                        <div class="mb-3">
+                            <label for="editDimensionValue" class="form-label" id="editDimensionLabel">Value</label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="editDimensionValue" 
+                                   name="value" 
+                                   min="0" 
+                                   step="0.01" 
+                                   placeholder="Enter value">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveDimensionBtn">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- Overdue History Modal -->
     <div class="modal fade" id="overdueHistoryModal" tabindex="-1" aria-labelledby="overdueHistoryModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -593,7 +665,7 @@
         
         if (cbin === 0 || isNaN(cbin)) return false;
         
-        // Determine if CBIN should be red based on WT (D) ranges
+        // Determine if CBIN should be red based on WT (DECL) ranges
         let isOverLimit = false;
         
         if (weight_d <= 5) {
@@ -607,7 +679,7 @@
         } else if (weight_d > 15 && weight_d <= 20) {
             isOverLimit = cbin > 864;
         } else if (weight_d > 20.01) {
-            isOverLimit = true; // Always red if WT (D) > 20.01
+            isOverLimit = true; // Always red if WT (DECL) > 20.01
         }
         
         return isOverLimit;
@@ -661,11 +733,12 @@
                     d.weight_ranges = selectedWeightRanges;
                 }
             },
-            dom: 'lBfrtip',
+            dom: 'Bfrtipl',
             buttons: [
                 {
                     extend: 'colvis',
-                    text: '<i class="bi bi-eye"></i> Columns Show/hide',
+                    text: '<i class="bi bi-eye"></i>',
+                    titleAttr: 'Show/Hide Columns',
                     columns: ':not(:last-child)',
                 }
             ],
@@ -711,6 +784,12 @@
                         return `
                             <span title="${data}" style="display: inline-flex; align-items: center; gap: 8px;">
                                 <span class="order-number-text">${data || ''}</span>
+                                <button class="btn btn-sm copy-order-number-btn" 
+                                        data-order-number="${data || ''}"
+                                        title="Copy order number"
+                                        style="color: #0d6efd; background: transparent; border: none; padding: 2px 6px; min-width: 28px; height: 24px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;">
+                                    <i class="fas fa-copy" style="font-size: 12px; display: block; line-height: 1;"></i>
+                                </button>
                                 <button class="btn btn-xs mark-as-shipped-btn"
                                         data-id="${row.id}" data-order-number="${row.order_number}" data-marked="${row.marked_as_ship}"
                                         title="${data} - ${row.marked_as_ship == 1 ? 'Shipped' : 'Mark as Shipped'}">
@@ -774,10 +853,6 @@
                     data: 'id',
                     title: '<input type="checkbox" id="selectAllD">',
                     render: function(data, type, row) {
-                        // Check if INV is 0 or null - show red triangle and disable checkbox
-                        const invValue = parseFloat(row.inv) || 0;
-                        const hasNoInventory = invValue === 0;
-                        
                         const hasValidWeight = row.weight != null && row.default_price != null && parseFloat(row.weight) > 0;
                         // Allow if recipient_name exists OR if address data exists (city, state, postal)
                         const hasRecipientName = row.recipient_name && row.recipient_name.trim() !== '' && row.recipient_name !== 'null' && row.recipient_name !== 'NULL';
@@ -785,11 +860,6 @@
                         const hasValidRecipient = hasRecipientName || hasAddressData;
                         const shippingRateFetched = row.shipping_rate_fetched !== undefined ? row.shipping_rate_fetched : (row.shipping_rate_fetched === 0 ? 0 : 1);
                         const hasValidRate = shippingRateFetched == 1 || shippingRateFetched === true;
-                        
-                        // If no inventory, show red triangle and disable
-                        if (hasNoInventory) {
-                            return `<span class="text-danger" title="No inventory available (INV = 0). Order cannot be shipped."><i class="fas fa-exclamation-triangle"></i></span>`;
-                        }
                         
                         if (hasValidWeight && hasValidRecipient && hasValidRate) {
                             return `<input type="checkbox" class="order-checkbox-d" value="${data}" data-order-id="${data}">`;
@@ -807,7 +877,7 @@
                 },
                 {
                     data: null,
-                    title: 'Best Rate (D)',
+                    title: 'Best Rate (DECL)',
                     render: function(data, type, row) {
                         const orderId = row.id;
                         const lengthD = parseFloat(row.length_d) || 0;
@@ -843,7 +913,7 @@
                                     data-ship-to-state="${row.ship_state || ''}"
                                     data-ship-to-city="${row.ship_city || ''}"
                                     data-ship-to-country="${row.ship_country || 'US'}"
-                                    title="Fetch Best Rate (D)"
+                                    title="Fetch Best Rate (DECL)"
                                     ${(lengthD === 0 || widthD === 0 || heightD === 0 || weightD === 0) ? 'disabled' : ''}>
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
@@ -851,7 +921,7 @@
                                     class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                                     data-order-id="${orderId}"
                                     data-rate-type="D"
-                                    title="Change Carrier (D)">
+                                    title="Change Carrier (DECL)">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                             </div>
@@ -868,10 +938,6 @@
                     data: 'id',
                     title: '<input type="checkbox" id="selectAllO">',
                     render: function(data, type, row) {
-                        // Check if INV is 0 or null - show red triangle and disable checkbox
-                        const invValue = parseFloat(row.inv) || 0;
-                        const hasNoInventory = invValue === 0;
-                        
                         const length = parseFloat(row.length) || 0;
                         const width = parseFloat(row.width) || 0;
                         const height = parseFloat(row.height) || 0;
@@ -886,11 +952,6 @@
                         const cachedRate = row.best_rate_o || null;
                         const hasValidRate = cachedRate && cachedRate.carrier;
                         
-                        // If no inventory, show red triangle and disable
-                        if (hasNoInventory) {
-                            return `<span class="text-danger" title="No inventory available (INV = 0). Order cannot be shipped."><i class="fas fa-exclamation-triangle"></i></span>`;
-                        }
-                        
                         if (hasValidDimensions && hasValidRecipient && hasValidRate) {
                             return `<input type="checkbox" class="order-checkbox-o" value="${data}" data-order-id="${data}">`;
                         } else if (!hasValidRecipient) {
@@ -898,7 +959,7 @@
                         } else if (!hasValidDimensions) {
                             return `<a href="#" class="text-info info-icon" title="Dimensions (L, W, H, WT) are required"><i class="fas fa-info-circle"></i></a>`;
                         } else if (!hasValidRate) {
-                            return `<a href="#" class="text-info info-icon" title="Best Rate (O) not fetched yet"><i class="fas fa-info-circle"></i></a>`;
+                            return `<a href="#" class="text-info info-icon" title="Best Rate (DIM) not fetched yet"><i class="fas fa-info-circle"></i></a>`;
                         } else {
                             return `<a href="#" class="text-info info-icon" title="Click for info"><i class="fas fa-info-circle"></i></a>`;
                         }
@@ -909,7 +970,7 @@
                 },
                 {
                     data: null,
-                    title: 'Best Rate (O)',
+                    title: 'Best Rate (DIM)',
                     render: function(data, type, row) {
                         const orderId = row.id;
                         const length = parseFloat(row.length) || 0;
@@ -947,7 +1008,7 @@
                                     data-ship-to-state="${row.ship_state || ''}"
                                     data-ship-to-city="${row.ship_city || ''}"
                                     data-ship-to-country="${row.ship_country || 'US'}"
-                                    title="Fetch Best Rate (O)"
+                                    title="Fetch Best Rate (DIM)"
                                     ${(length === 0 || width === 0 || height === 0 || wt_act_s === 0) ? 'disabled' : ''}>
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
@@ -955,7 +1016,7 @@
                                     class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                                     data-order-id="${orderId}"
                                     data-rate-type="O"
-                                    title="Change Carrier (O)">
+                                    title="Change Carrier (DIM)">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                             </div>
@@ -970,84 +1031,186 @@
                     data: 'recipient_name',
                     title: 'Recipient',
                     render: function(data, type, row) {
-                        // if (!data || data.trim() === '') {
-                        // return '—';
-                        // }
                         const verificationMark = row.is_address_verified === 0
                             ? ' <i class="fas fa-exclamation-circle text-warning" title="Address not verified"></i>'
                             : '';
-                        return `
-                            <a href="#" class="recipient-link" data-order-id="${row.id}">
-                                ${data}${verificationMark}
-                            </a>
-                            <button class="btn btn-sm btn-link text-primary ms-2 edit-address-btn" data-order='${JSON.stringify(row).replace(/'/g, "&apos;")}' title="Edit Address">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                        `;
+                        const recipientValue = data || '—';
+                        // Escape HTML entities
+                        function escapeHtml(text) {
+                            if (!text) return '';
+                            const map = {
+                                '&': '&amp;',
+                                '<': '&lt;',
+                                '>': '&gt;',
+                                '"': '&quot;',
+                                "'": '&#039;'
+                            };
+                            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+                        }
+                        const escapedRecipient = escapeHtml(recipientValue);
+                        return '<div style="display: flex; align-items: center; gap: 5px;">' +
+                            '<button class="btn btn-sm btn-link p-0 toggle-recipient-btn" ' +
+                            'data-order-id="' + row.id + '" ' +
+                            'title="Show/Hide Recipient" ' +
+                            'style="color: #6c757d; padding: 0 4px;">' +
+                            '<i class="bi bi-eye" style="font-size: 12px;"></i>' +
+                            '</button>' +
+                            '<span class="recipient-value" data-order-id="' + row.id + '" style="display: none;">' +
+                            '<a href="#" class="recipient-link" data-order-id="' + row.id + '">' +
+                            escapedRecipient + verificationMark +
+                            '</a>' +
+                            '</span>' +
+                            '<button class="btn btn-sm btn-link text-primary p-0 edit-address-btn" ' +
+                            'data-order=\'' + JSON.stringify(row).replace(/'/g, "&apos;") + '\' ' +
+                            'title="Edit Address" ' +
+                            'style="padding: 0 4px;">' +
+                            '<i class="fas fa-edit" style="font-size: 12px;"></i>' +
+                            '</button>' +
+                            '</div>';
                     },
                     visible: columnVisibilityMap['recipient_name'] !== undefined ? columnVisibilityMap['recipient_name'] : true
                 },
                 {
                     data: 'length_d',
-                    title: 'L (D)',
-                    className: 'text-end editable-cell',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
-                        const decimals = (data.toString().split('.')[1] || '').length;
-                        if (decimals > 0) {
-                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                    title: 'L (DECL)',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        let displayValue = '—';
+                        if (data !== null && data !== undefined && data !== '') {
+                            const num = parseFloat(data);
+                            if (!isNaN(num)) {
+                                const decimals = (data.toString().split('.')[1] || '').length;
+                                if (decimals > 0) {
+                                    displayValue = decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                                } else {
+                                    displayValue = num.toString();
+                                }
+                            } else {
+                                displayValue = data;
+                            }
                         }
-                        return num.toString();
+                        return `
+                            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 5px;">
+                                <span>${displayValue}</span>
+                                <button class="btn btn-sm btn-link p-0 edit-dimension-btn" 
+                                        data-order-id="${row.id}" 
+                                        data-field="length_d" 
+                                        data-value="${data || ''}"
+                                        data-label="L (DECL)"
+                                        title="Edit L (DECL)" 
+                                        style="color: #0d6efd; padding: 0 4px;">
+                                    <i class="fas fa-edit" style="font-size: 12px;"></i>
+                                </button>
+                            </div>
+                        `;
                     },
                     visible: false
                 },
                 {
                     data: 'width_d',
-                    title: 'W (D)',
-                    className: 'text-end editable-cell',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
-                        const decimals = (data.toString().split('.')[1] || '').length;
-                        if (decimals > 0) {
-                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                    title: 'W (DECL)',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        let displayValue = '—';
+                        if (data !== null && data !== undefined && data !== '') {
+                            const num = parseFloat(data);
+                            if (!isNaN(num)) {
+                                const decimals = (data.toString().split('.')[1] || '').length;
+                                if (decimals > 0) {
+                                    displayValue = decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                                } else {
+                                    displayValue = num.toString();
+                                }
+                            } else {
+                                displayValue = data;
+                            }
                         }
-                        return num.toString();
+                        return `
+                            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 5px;">
+                                <span>${displayValue}</span>
+                                <button class="btn btn-sm btn-link p-0 edit-dimension-btn" 
+                                        data-order-id="${row.id}" 
+                                        data-field="width_d" 
+                                        data-value="${data || ''}"
+                                        data-label="W (DECL)"
+                                        title="Edit W (DECL)" 
+                                        style="color: #0d6efd; padding: 0 4px;">
+                                    <i class="fas fa-edit" style="font-size: 12px;"></i>
+                                </button>
+                            </div>
+                        `;
                     },
                     visible: false
                 },
                 {
                     data: 'height_d',
-                    title: 'H (D)',
-                    className: 'text-end editable-cell',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
-                        const decimals = (data.toString().split('.')[1] || '').length;
-                        if (decimals > 0) {
-                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                    title: 'H (DECL)',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        let displayValue = '—';
+                        if (data !== null && data !== undefined && data !== '') {
+                            const num = parseFloat(data);
+                            if (!isNaN(num)) {
+                                const decimals = (data.toString().split('.')[1] || '').length;
+                                if (decimals > 0) {
+                                    displayValue = decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                                } else {
+                                    displayValue = num.toString();
+                                }
+                            } else {
+                                displayValue = data;
+                            }
                         }
-                        return num.toString();
+                        return `
+                            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 5px;">
+                                <span>${displayValue}</span>
+                                <button class="btn btn-sm btn-link p-0 edit-dimension-btn" 
+                                        data-order-id="${row.id}" 
+                                        data-field="height_d" 
+                                        data-value="${data || ''}"
+                                        data-label="H (DECL)"
+                                        title="Edit H (DECL)" 
+                                        style="color: #0d6efd; padding: 0 4px;">
+                                    <i class="fas fa-edit" style="font-size: 12px;"></i>
+                                </button>
+                            </div>
+                        `;
                     },
                     visible: false
                 },
                 {
                     data: 'weight_d',
-                    title: 'WT (D)',
-                    className: 'text-end editable-cell',
-                    render: function(data) {
-                        if (data === null || data === undefined || data === '') return '—';
-                        const num = parseFloat(data);
-                        if (isNaN(num)) return data;
-                        const decimals = (data.toString().split('.')[1] || '').length;
-                        if (decimals > 0) {
-                            return decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                    title: 'WT (DECL)',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        let displayValue = '—';
+                        if (data !== null && data !== undefined && data !== '') {
+                            const num = parseFloat(data);
+                            if (!isNaN(num)) {
+                                const decimals = (data.toString().split('.')[1] || '').length;
+                                if (decimals > 0) {
+                                    displayValue = decimals > 1 ? num.toFixed(decimals - 1) : Math.round(num).toString();
+                                } else {
+                                    displayValue = num.toString();
+                                }
+                            } else {
+                                displayValue = data;
+                            }
                         }
-                        return num.toString();
+                        return `
+                            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 5px;">
+                                <span>${displayValue}</span>
+                                <button class="btn btn-sm btn-link p-0 edit-dimension-btn" 
+                                        data-order-id="${row.id}" 
+                                        data-field="weight_d" 
+                                        data-value="${data || ''}"
+                                        data-label="WT (DECL)"
+                                        title="Edit WT (DECL)" 
+                                        style="color: #0d6efd; padding: 0 4px;">
+                                    <i class="fas fa-edit" style="font-size: 12px;"></i>
+                                </button>
+                            </div>
+                        `;
                     },
                     visible: false
                 },
@@ -1072,7 +1235,7 @@
                 },
                 {
                     data: null,
-                    title: 'CBIN (D)',
+                    title: 'CBIN (DECL)',
                     className: 'text-end',
                     render: function(data, type, row) {
                         const length_d = parseFloat(row.length_d) || 0;
@@ -1085,7 +1248,7 @@
                         
                         const formattedValue = Math.round(cbin);
                         
-                        // Determine if CBIN should be red based on WT (D) ranges
+                        // Determine if CBIN should be red based on WT (DECL) ranges
                         let isOverLimit = false;
                         
                         if (weight_d <= 5) {
@@ -1099,7 +1262,7 @@
                         } else if (weight_d > 15 && weight_d <= 20) {
                             isOverLimit = cbin > 864;
                         } else if (weight_d > 20.01) {
-                            isOverLimit = true; // Always red if WT (D) > 20.01
+                            isOverLimit = true; // Always red if WT (DECL) > 20.01
                         }
                         
                         const styleClass = isOverLimit ? 'text-danger fw-bold' : '';
@@ -1227,7 +1390,12 @@
                         if (data === null || data === undefined || data === '') return '—';
                         const num = parseFloat(data);
                         if (isNaN(num)) return data;
-                        return num.toString();
+                        const value = num.toString();
+                        // Make text red if inventory is 0
+                        if (num === 0) {
+                            return `<span class="text-danger fw-bold">${value}</span>`;
+                        }
+                        return value;
                     },
                     visible: columnVisibilityMap['inv'] !== undefined ? columnVisibilityMap['inv'] : true
                 },
@@ -1289,24 +1457,24 @@
                     
                     const orderId = row.id;
                     
-                    // Check if Best Rate (D) needs to be fetched
-                    // Best Rate (D) is available if default_carrier exists and shipping_rate_fetched is true
+                    // Check if Best Rate (DECL) needs to be fetched
+                    // Best Rate (DECL) is available if default_carrier exists and shipping_rate_fetched is true
                     const hasBestRateD = row.default_carrier && row.default_carrier !== '—' && 
                                         (row.shipping_rate_fetched === 1 || row.shipping_rate_fetched === true);
                     const needsBestRateD = !hasBestRateD;
                     
-                    // Check if Best Rate (O) needs to be fetched
-                    // Best Rate (O) is available if best_rate_o exists with carrier
+                    // Check if Best Rate (DIM) needs to be fetched
+                    // Best Rate (DIM) is available if best_rate_o exists with carrier
                     const hasBestRateO = row.best_rate_o && row.best_rate_o.carrier;
                     const needsBestRateO = !hasBestRateO;
                     
-                    // Get D dimensions for Best Rate (D)
+                    // Get DECL dimensions for Best Rate (DECL)
                     const lengthD = parseFloat(row.length_d) || 0;
                     const widthD = parseFloat(row.width_d) || 0;
                     const heightD = parseFloat(row.height_d) || 0;
                     const weightD = parseFloat(row.weight_d) || 0;
                     
-                    // Get regular dimensions for Best Rate (O)
+                    // Get regular dimensions for Best Rate (DIM)
                     const length = parseFloat(row.length) || 0;
                     const width = parseFloat(row.width) || 0;
                     const height = parseFloat(row.height) || 0;
@@ -1314,7 +1482,7 @@
                     const quantity = parseFloat(row.quantity) || 0;
                     const wt_act_s = wt_act * quantity;
                     
-                    // Fetch Best Rate (D) if missing and dimensions are available
+                    // Fetch Best Rate (DECL) if missing and dimensions are available
                     if (needsBestRateD && lengthD > 0 && widthD > 0 && heightD > 0 && weightD > 0) {
                         const fetchKey = `d_${orderId}`;
                         if (!fetchingRates.has(fetchKey)) {
@@ -1323,7 +1491,7 @@
                         }
                     }
                     
-                    // Fetch Best Rate (O) if missing and dimensions are available
+                    // Fetch Best Rate (DIM) if missing and dimensions are available
                     if (needsBestRateO && length > 0 && width > 0 && height > 0 && wt_act_s > 0) {
                         const fetchKey = `o_${orderId}`;
                         if (!fetchingRates.has(fetchKey)) {
@@ -1337,7 +1505,7 @@
             }
         }
         
-        // Function to fetch Best Rate (D) automatically
+        // Function to fetch Best Rate (DECL) automatically
         function fetchBestRateD(orderId, lengthD, widthD, heightD, weightD, row) {
             $.ajax({
                 url: '{{ route("orders.fetch-rate-d") }}',
@@ -1378,12 +1546,12 @@
                 },
                 error: function(xhr) {
                     fetchingRates.delete(`d_${orderId}`);
-                    console.error('Failed to auto-fetch Best Rate (D) for order', orderId, xhr);
+                    console.error('Failed to auto-fetch Best Rate (DECL) for order', orderId, xhr);
                 }
             });
         }
         
-        // Function to fetch Best Rate (O) automatically
+        // Function to fetch Best Rate (DIM) automatically
         function fetchBestRateO(orderId, length, width, height, weight, row) {
             $.ajax({
                 url: '{{ route("orders.fetch-rate-o") }}',
@@ -1419,7 +1587,7 @@
                 },
                 error: function(xhr) {
                     fetchingRates.delete(`o_${orderId}`);
-                    console.error('Failed to auto-fetch Best Rate (O) for order', orderId, xhr);
+                    console.error('Failed to auto-fetch Best Rate (DIM) for order', orderId, xhr);
                 }
             });
         }
@@ -1532,10 +1700,10 @@
             
             // Update button text and icon
             if (!allVisible) {
-                $btn.html('<i class="bi bi-eye-slash"></i> Hide D Dimensions');
+                $btn.html('<i class="bi bi-eye-slash"></i> Hide DECL Dimensions');
                 $btn.removeClass('btn-outline-secondary').addClass('btn-secondary');
             } else {
-                $btn.html('<i class="bi bi-eye"></i> Show D Dimensions');
+                $btn.html('<i class="bi bi-eye"></i> Show DECL Dimensions');
                 $btn.removeClass('btn-secondary').addClass('btn-outline-secondary');
             }
             
@@ -1558,10 +1726,10 @@
             
             // Update button text and icon
             if (!allVisible) {
-                $btn.html('<i class="bi bi-eye-slash"></i> Hide Regular Dimensions');
+                $btn.html('<i class="bi bi-eye-slash"></i> Hide DIM');
                 $btn.removeClass('btn-outline-secondary').addClass('btn-secondary');
             } else {
-                $btn.html('<i class="bi bi-eye"></i> Show Regular Dimensions');
+                $btn.html('<i class="bi bi-eye"></i> Show DIM');
                 $btn.removeClass('btn-secondary').addClass('btn-outline-secondary');
             }
             
@@ -1606,28 +1774,18 @@
             });
         });
         $('#selectAllD').on('change', function() {
-            // Only check orders that are eligible (not disabled and have inventory)
+            // Check all visible checkboxes
             $('.order-checkbox-d', table.rows().nodes()).each(function() {
                 const $checkbox = $(this);
-                const row = table.row($checkbox.closest('tr')).data();
-                const invValue = parseFloat(row?.inv) || 0;
-                // Only check if order has inventory (INV > 0)
-                if (invValue > 0) {
-                    $checkbox.prop('checked', $('#selectAllD').prop('checked'));
-                }
+                $checkbox.prop('checked', $('#selectAllD').prop('checked'));
             });
             updateBulkButtonState();
         });
         $('#selectAllO').on('change', function() {
-            // Only check orders that are eligible (not disabled and have inventory)
+            // Check all visible checkboxes
             $('.order-checkbox-o', table.rows().nodes()).each(function() {
                 const $checkbox = $(this);
-                const row = table.row($checkbox.closest('tr')).data();
-                const invValue = parseFloat(row?.inv) || 0;
-                // Only check if order has inventory (INV > 0)
-                if (invValue > 0) {
-                    $checkbox.prop('checked', $('#selectAllO').prop('checked'));
-                }
+                $checkbox.prop('checked', $('#selectAllO').prop('checked'));
             });
             updateBulkButtonState();
         });
@@ -1655,88 +1813,78 @@
             $('.bulk-update-dimensions-btn').prop('disabled', totalSelectedCount === 0);
             $('#bulkDimensionInputs').toggleClass('active', totalSelectedCount > 0);
 
-            $('#selectedCount').text(totalSelectedCount);
-            $('#selectedCountDisplay').toggleClass('text-primary', totalSelectedCount > 0).toggleClass('text-muted', totalSelectedCount === 0);
         }
         $('.bulk-buy-shipping-btn').on('click', function() {
             // Collect orders with their rate types (D or O)
             let selectedOrders = [];
             
-            // Process Best Rate (D) checkboxes
+            // Process Best Rate (DECL) checkboxes
             $('.order-checkbox-d:checked').each(function() {
                 const $checkbox = $(this);
                 const orderId = $(this).val();
                 const row = table.row($checkbox.closest('tr')).data();
-                const invValue = parseFloat(row?.inv) || 0;
                 
-                // Only include orders with inventory (INV > 0)
-                if (invValue > 0) {
-                    const orderData = {
-                        order_id: parseInt(orderId),
-                        rate_type: 'D',
-                        rate_id: row.default_rate_id || null,
-                        rate_info: {
-                            carrier: row.default_carrier || null,
-                            service: row.default_service || null,
-                            price: row.default_price || null,
-                            source: row.default_source || null
-                        }
-                    };
-                    selectedOrders.push(orderData);
-                } else {
-                    // Uncheck orders with no inventory
-                    $checkbox.prop('checked', false);
-                }
+                const orderData = {
+                    order_id: parseInt(orderId),
+                    rate_type: 'D',
+                    rate_id: row.default_rate_id || null,
+                    rate_info: {
+                        carrier: row.default_carrier || null,
+                        service: row.default_service || null,
+                        price: row.default_price || null,
+                        source: row.default_source || null
+                    }
+                };
+                selectedOrders.push(orderData);
             });
             
-            // Process Best Rate (O) checkboxes
+            // Process Best Rate (DIM) checkboxes
             $('.order-checkbox-o:checked').each(function() {
                 const $checkbox = $(this);
                 const orderId = $(this).val();
                 const row = table.row($checkbox.closest('tr')).data();
-                const invValue = parseFloat(row?.inv) || 0;
                 
-                // Only include orders with inventory (INV > 0)
-                if (invValue > 0) {
-                    const cachedRate = row.best_rate_o || null;
-                    const orderData = {
-                        order_id: parseInt(orderId),
-                        rate_type: 'O',
-                        rate_id: cachedRate?.rate_id || null,
-                        rate_info: cachedRate ? {
-                            carrier: cachedRate.carrier || null,
-                            service: cachedRate.service || null,
-                            price: cachedRate.price || null
-                        } : null
-                    };
-                    selectedOrders.push(orderData);
-                } else {
-                    // Uncheck orders with no inventory
-                    $checkbox.prop('checked', false);
-                }
+                const cachedRate = row.best_rate_o || null;
+                const orderData = {
+                    order_id: parseInt(orderId),
+                    rate_type: 'O',
+                    rate_id: cachedRate?.rate_id || null,
+                    rate_info: cachedRate ? {
+                        carrier: cachedRate.carrier || null,
+                        service: cachedRate.service || null,
+                        price: cachedRate.price || null
+                    } : null
+                };
+                selectedOrders.push(orderData);
             });
             
             if (selectedOrders.length === 0) {
                 Swal.fire({
                     icon: 'warning',
-                    title: 'No Eligible Orders',
-                    text: 'No orders with available inventory selected. Orders with INV = 0 cannot be shipped.',
+                    title: 'No Orders Selected',
+                    text: 'Please select at least one order to proceed.',
                     confirmButtonText: 'OK'
                 });
                 updateBulkButtonState();
                 return;
             }
             
-            // Check if any orders were filtered out
-            const totalCheckedD = $('.order-checkbox-d:checked').length;
-            const totalCheckedO = $('.order-checkbox-o:checked').length;
-            const totalChecked = totalCheckedD + totalCheckedO;
-            if (totalChecked > selectedOrders.length) {
-                const filteredCount = totalChecked - selectedOrders.length;
+            // Check if any orders have inventory = 0 (informational only)
+            const ordersWithNoInventory = selectedOrders.filter(function(orderData) {
+                const $checkbox = orderData.rate_type === 'D' 
+                    ? $(`.order-checkbox-d[value="${orderData.order_id}"]`)
+                    : $(`.order-checkbox-o[value="${orderData.order_id}"]`);
+                const row = table.row($checkbox.closest('tr')).data();
+                const invValue = parseFloat(row?.inv) || 0;
+                return invValue === 0;
+            });
+            
+            if (ordersWithNoInventory.length > 0) {
+                const filteredCount = ordersWithNoInventory.length;
                 Swal.fire({
-                    icon: 'info',
-                    title: 'Orders Filtered',
-                    html: `${filteredCount} order(s) with INV = 0 were excluded from bulk shipping.<br>Proceeding with ${selectedOrders.length} eligible order(s).`,
+                    icon: 'warning',
+                    title: 'Orders with No Inventory',
+                    html: `${filteredCount} order(s) with INV = 0 are included in the selection.<br>Proceeding with ${selectedOrders.length} order(s).`,
                     showCancelButton: true,
                     confirmButtonText: 'Continue',
                     cancelButtonText: 'Cancel'
@@ -2114,6 +2262,136 @@
         }
     });
 });
+
+    // Handle edit dimension button click
+    $(document).on('click', '.edit-dimension-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const orderId = $(this).data('order-id');
+        const field = $(this).data('field');
+        const currentValue = $(this).data('value');
+        const label = $(this).data('label');
+        
+        // Set modal values
+        $('#editDimensionOrderId').val(orderId);
+        $('#editDimensionField').val(field);
+        $('#editDimensionLabel').text(label);
+        $('#editDimensionValue').val(currentValue || '');
+        
+        // Show modal
+        $('#editDimensionModal').modal('show');
+        
+        // Focus on input after modal is shown
+        $('#editDimensionModal').on('shown.bs.modal', function() {
+            $('#editDimensionValue').focus();
+        });
+    });
+    
+    // Handle save dimension from modal
+    $('#saveDimensionBtn').on('click', function() {
+        const orderId = $('#editDimensionOrderId').val();
+        const field = $('#editDimensionField').val();
+        const value = $('#editDimensionValue').val().trim();
+        const label = $('#editDimensionLabel').text();
+        
+        // Validate input
+        if (value !== '' && (isNaN(value) || parseFloat(value) < 0)) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Invalid Input',
+                text: `Please enter a valid number for ${label}.`,
+                confirmButtonText: 'OK'
+            });
+            return;
+        }
+        
+        // Convert empty string to null for proper backend handling
+        const valueToSend = value === '' ? null : value;
+        
+        // Disable button during save
+        $(this).prop('disabled', true).text('Saving...');
+        
+        $.ajax({
+            url: '{{ route("orders.update-dimensions") }}',
+            type: 'POST',
+            data: {
+                order_id: orderId,
+                field: field,
+                value: valueToSend,
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                $('#saveDimensionBtn').prop('disabled', false).text('Save');
+                
+                if (response.success) {
+                    // Close modal
+                    $('#editDimensionModal').modal('hide');
+                    
+                    // Show success message
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Updated',
+                        text: `${label} updated successfully!`,
+                        confirmButtonText: 'OK',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                    
+                    // Reload table to show updated value
+                    setTimeout(function() {
+                        table.ajax.reload(null, false);
+                    }, 100);
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: response.message || 'Failed to update value.',
+                        confirmButtonText: 'OK'
+                    });
+                }
+            },
+            error: function(xhr) {
+                $('#saveDimensionBtn').prop('disabled', false).text('Save');
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: xhr.responseJSON?.message || 'An error occurred while updating the value.',
+                    confirmButtonText: 'OK'
+                });
+            }
+        });
+    });
+    
+    // Reset modal when closed
+    $('#editDimensionModal').on('hidden.bs.modal', function() {
+        $('#editDimensionForm')[0].reset();
+        $('#saveDimensionBtn').prop('disabled', false).text('Save');
+    });
+    
+    // Handle recipient show/hide toggle
+    $(document).on('click', '.toggle-recipient-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const $btn = $(this);
+        const orderId = $btn.data('order-id');
+        const $recipientValue = $(`.recipient-value[data-order-id="${orderId}"]`);
+        const $icon = $btn.find('i');
+        
+        if ($recipientValue.is(':visible')) {
+            // Hide recipient
+            $recipientValue.hide();
+            $icon.removeClass('bi-eye-slash').addClass('bi-eye');
+            $btn.attr('title', 'Show Recipient');
+        } else {
+            // Show recipient
+            $recipientValue.show();
+            $icon.removeClass('bi-eye').addClass('bi-eye-slash');
+            $btn.attr('title', 'Hide Recipient');
+        }
+    });
+    
         $('#shipmentTable').on('click', '.editable-cell', function() {
             let $cell = $(this);
             if ($cell.hasClass('editing-cell')) return;
@@ -2135,12 +2413,22 @@
                 }
             }
             let field = columnDefs[actualColumnIndex].data;
-            // Only allow editing of _d fields and weight, not the original H, W, L columns
-            if (!['height_d', 'width_d', 'length_d', 'weight', 'weight_d'].includes(field)) {
+            // Prevent editing of dimension columns - they now use modal
+            if (['height_d', 'width_d', 'length_d', 'weight_d'].includes(field)) {
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Use Edit Button',
+                    text: 'Please use the edit button to modify dimension values.',
+                    confirmButtonText: 'OK'
+                });
+                return;
+            }
+            // Only allow editing of weight (non-dimension), not the original H, W, L columns
+            if (!['weight'].includes(field)) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Invalid Column',
-                    text: 'This column is not editable. Please use H (D), W (D), or L (D) columns for editing.',
+                    text: 'This column is not editable.',
                     confirmButtonText: 'OK'
                 });
                 return;
@@ -2150,7 +2438,7 @@
                 Swal.fire({
                     icon: 'error',
                     title: 'Column Not Editable',
-                    text: 'H, W, and L columns are read-only. Please use H (D), W (D), or L (D) columns for editing.',
+                    text: 'H, W, and L columns are read-only. Please use H (DECL), W (DECL), or L (DECL) columns for editing.',
                     confirmButtonText: 'OK'
                 });
                 return;
@@ -2966,7 +3254,7 @@
                         class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                         data-order-id="${orderId}"
                         data-rate-type="O"
-                        title="Change Carrier (O)">
+                        title="Change Carrier (DIM)">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                 `);
@@ -2979,9 +3267,9 @@
                     table.ajax.reload(null, false);
                 }, 500); // Small delay to ensure database is updated
                 
-                // Enable the checkbox for Best Rate (O) if conditions are met
-                    
-                // Enable the checkbox for Best Rate (O) if conditions are met
+                // Enable the checkbox for Best Rate (DIM) if conditions are met
+
+                // Enable the checkbox for Best Rate (DIM) if conditions are met
                 const $checkboxO = $(`.order-checkbox-o[value="${orderId}"]`);
                 if ($checkboxO.length && rowData) {
                     const invValue = parseFloat(rowData.inv) || 0;
@@ -3065,7 +3353,7 @@
         Swal.fire({
             icon: 'warning',
             title: 'Missing Data',
-            text: 'Please ensure L (D), W (D), H (D), and WT (D) values are available',
+            text: 'Please ensure L (DECL), W (DECL), H (DECL), and WT (DECL) values are available',
             confirmButtonText: 'OK'
         });
         return;
@@ -3130,7 +3418,7 @@
                         class="btn btn-sm btn-link text-primary ms-2 edit-carrier-btn"
                         data-order-id="${orderId}"
                         data-rate-type="D"
-                        title="Change Carrier (D)">
+                        title="Change Carrier (DECL)">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                 `);
@@ -3325,6 +3613,88 @@
         const days = $(this).val();
         loadOverdueHistory(days);
     });
+
+    // Copy order number to clipboard functionality
+    $(document).on('click', '.copy-order-number-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const orderNumber = $(this).data('order-number');
+        
+        if (!orderNumber) {
+            return;
+        }
+        
+        // Use the Clipboard API if available
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(orderNumber).then(function() {
+                // Show feedback
+                const $btn = $(e.currentTarget);
+                const originalHtml = $btn.html();
+                $btn.html('<i class="fas fa-check" style="font-size: 12px; display: block; line-height: 1;"></i>');
+                    $btn.css({
+                        'color': '#fff',
+                        'background': '#28a745',
+                        'border': 'none'
+                    });
+                
+                setTimeout(function() {
+                    $btn.html(originalHtml);
+                    $btn.css({
+                        'color': '#0d6efd',
+                        'background': 'transparent',
+                        'border': 'none'
+                    });
+                }, 1000);
+            }).catch(function(err) {
+                console.error('Failed to copy:', err);
+                // Fallback to older method
+                fallbackCopyToClipboard(orderNumber, e.currentTarget);
+            });
+        } else {
+            // Fallback for older browsers
+            fallbackCopyToClipboard(orderNumber, e.currentTarget);
+        }
+    });
+    
+    // Fallback copy function for older browsers
+    function fallbackCopyToClipboard(text, buttonElement) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                const $btn = $(buttonElement);
+                const originalHtml = $btn.html();
+                $btn.html('<i class="fas fa-check" style="font-size: 12px; display: block; line-height: 1;"></i>');
+                    $btn.css({
+                        'color': '#fff',
+                        'background': '#28a745',
+                        'border': 'none'
+                    });
+                
+                setTimeout(function() {
+                    $btn.html(originalHtml);
+                    $btn.css({
+                        'color': '#0d6efd',
+                        'background': 'transparent',
+                        'border': 'none'
+                    });
+                }, 1000);
+            }
+        } catch (err) {
+            console.error('Fallback copy failed:', err);
+        }
+        
+        document.body.removeChild(textArea);
+    }
 
 });
 </script>
