@@ -1808,6 +1808,7 @@
                                 let downloadLink = '';
                                 let summaryHtml = '';
                                 let failedDetailsHtml = '';
+                                let instructionsHtml = '';
                                 
                                 // Check if there are any failures (partial success scenario)
                                 const hasFailures = response.summary && response.summary.failed_count > 0;
@@ -1835,6 +1836,11 @@
                                     failedDetailsHtml += '</ul>';
                                 }
                                 
+                                // Show instructions if provided
+                                if (response.instructions) {
+                                    instructionsHtml = response.instructions;
+                                }
+                                
                                 // Determine icon and title based on whether there are failures
                                 const icon = hasFailures ? 'warning' : 'success';
                                 const title = hasFailures ? 'Partial Success' : 'Success';
@@ -1842,20 +1848,27 @@
                                 Swal.fire({
                                     icon: icon,
                                     title: title,
-                                    html: (response.message || 'Bulk Label purchase completed!') + downloadLink + summaryHtml + failedDetailsHtml,
+                                    html: (response.message || 'Bulk Label purchase completed!') + downloadLink + summaryHtml + failedDetailsHtml + instructionsHtml,
                                     confirmButtonText: 'OK',
-                                    width: hasFailures ? '700px' : '500px'
+                                    width: hasFailures ? '800px' : '500px',
+                                    customClass: {
+                                        popup: 'swal-wide'
+                                    }
                                 }).then(() => {
                                     table.ajax.reload();
                                 });
                             } else {
-                                // Show detailed error messages if available
+                                // Error response - show message and instructions
                                 let errorHtml = response.message || 'Failed to buy bulk Label.';
+                                if (response.instructions) {
+                                    errorHtml += response.instructions;
+                                }
                                 
+                                // Show failed details if available
                                 if (response.failed_details && response.failed_details.length > 0) {
-                                    errorHtml += '<br><br><strong>Error Details:</strong><ul style="text-align: left; margin-top: 10px;">';
+                                    errorHtml += '<br><br><strong>Error Details:</strong><ul style="text-align: left; margin-top: 10px; max-height: 300px; overflow-y: auto;">';
                                     response.failed_details.forEach(function(detail) {
-                                        errorHtml += `<li>Order #${detail.order_id}: ${detail.message}</li>`;
+                                        errorHtml += `<li style="margin-bottom: 8px;"><strong>Order #${detail.order_id}:</strong> ${detail.message || detail.error || 'Unknown error'}</li>`;
                                     });
                                     errorHtml += '</ul>';
                                 }
@@ -1867,23 +1880,57 @@
                                         Failed: ${response.labels.summary.failed_count}`;
                                 }
                                 
+                                // Determine icon based on error type
+                                let icon = 'error';
+                                if (response.error_type === 'validation_error') {
+                                    icon = 'warning';
+                                } else if (response.error_type === 'concurrency_error') {
+                                    icon = 'info';
+                                }
+                                
                                 Swal.fire({
-                                    icon: 'error',
-                                    title: 'Error',
+                                    icon: icon,
+                                    title: 'Bulk Shipping Error',
                                     html: errorHtml,
                                     confirmButtonText: 'OK',
-                                    width: '600px'
+                                    width: '700px',
+                                    customClass: {
+                                        popup: 'swal-wide'
+                                    }
                                 });
                             }
                         },
                         error: function(xhr) {
                             $('#loader').hide();
                             $('body').removeClass('loader-active');
+                            
+                            let errorMessage = 'An error occurred while processing bulk Label.';
+                            let instructions = '';
+                            
+                            if (xhr.responseJSON) {
+                                errorMessage = xhr.responseJSON.message || errorMessage;
+                                if (xhr.responseJSON.instructions) {
+                                    instructions = xhr.responseJSON.instructions;
+                                } else {
+                                    // Default instructions for network/server errors
+                                    instructions = '<div style="text-align: left; margin-top: 15px; padding: 15px; background-color: #f8d7da; border-radius: 5px; border-left: 4px solid #dc3545;">'
+                                        + '<strong>What to do next?</strong><br>'
+                                        + '1. Check your internet connection<br>'
+                                        + '2. Wait a few moments and try again<br>'
+                                        + '3. If the problem persists, contact technical support<br>'
+                                        + '</div>';
+                                }
+                            }
+                            
                             Swal.fire({
                                 icon: 'error',
                                 title: 'Error',
-                                text: xhr.responseJSON?.message || 'An error occurred while processing bulk Label.',
-                                confirmButtonText: 'OK'
+                                html: errorMessage + instructions,
+                                confirmButtonText: 'OK',
+                                width: '700px',
+                                customClass: {
+                                    popup: 'swal-wide'
+                                }
                             });
                         }
                     });

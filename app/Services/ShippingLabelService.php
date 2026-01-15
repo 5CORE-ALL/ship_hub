@@ -15,6 +15,7 @@ use App\Repositories\FulfillmentRepository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use App\Services\BulkShippingSummaryService;
+use App\Services\OrderLockService;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 
@@ -25,16 +26,20 @@ class ShippingLabelService
     protected SendleService $sendle;
     protected ShippoService $shippo;
     protected FulfillmentRepository $fulfillmentRepo;
+    protected OrderLockService $orderLockService;
+    
     public function __construct(
         ShipStationService $shipStation,
         SendleService $sendle,
         ShippoService $shippo,
-        FulfillmentRepository $fulfillmentRepo
+        FulfillmentRepository $fulfillmentRepo,
+        OrderLockService $orderLockService
     ) {
         $this->shipStation = $shipStation;
         $this->sendle = $sendle;
         $this->shippo = $shippo;
         $this->fulfillmentRepo = $fulfillmentRepo;
+        $this->orderLockService = $orderLockService;
     }
 
     /**
@@ -105,41 +110,38 @@ class ShippingLabelService
                 }
                 
                 // Conflict detection logic:
-                // The controller locks orders before calling this function, so orders locked <1 minute ago
-                // are from the current request and should proceed.
-                // Only skip orders that were locked 1-10 minutes ago (likely another concurrent request)
+                // The controller uses atomic locking and only passes successfully locked orders to this function.
+                // Therefore, if an order is locked, it should be from the current request.
+                // Only skip orders that have been locked for more than 5 minutes (likely stuck from a previous failed request).
                 
                 if ($order->queue == 1 && $queueStartedAt) {
                     $secondsAgo = $queueStartedAt->diffInSeconds(now());
+                    $minutesAgo = $queueStartedAt->diffInMinutes(now());
                     
-                    if ($queueStartedAt->lt(now()->subMinutes(10))) {
-                        // Order has been locked for more than 10 minutes - likely stuck
-                        Log::warning("Order {$orderId} appears to be stuck in queue, unlocking and skipping", [
+                    // Only skip orders that have been locked for more than 5 minutes (likely stuck)
+                    if ($minutesAgo > 5) {
+                        // Order has been locked for more than 5 minutes - likely stuck from a previous request
+                        Log::warning("Order {$orderId} appears to be stuck in queue (locked {$minutesAgo} minutes ago), unlocking and proceeding", [
                             'queue_started_at' => $queueStartedAt,
-                            'minutes_locked' => $queueStartedAt->diffInMinutes(now())
+                            'minutes_locked' => $minutesAgo
                         ]);
+                        // Unlock and proceed - don't skip, as this might be a stuck lock
                         $order->update(['queue' => 0]);
-                    } elseif ($secondsAgo > 60 && $secondsAgo < 600) {
-                        // Order was locked 1-10 minutes ago - likely another concurrent request
-                        Log::warning("Order {$orderId} is currently being processed by another request (locked {$secondsAgo} seconds ago), skipping", [
+                        // Re-lock it for this request
+                        $order->update(['queue' => 1, 'queue_started_at' => now()]);
+                    } else {
+                        // Order was locked recently (within 5 minutes) - this is from current request, proceed
+                        Log::info("Order {$orderId} was locked {$secondsAgo} seconds ago (current request), proceeding", [
                             'queue_started_at' => $queueStartedAt,
                             'seconds_ago' => $secondsAgo
                         ]);
-                        $labels[] = [
-                            "order_id" => $orderId,
-                            "success" => false,
-                            "message" => "Order is currently being processed by another request. Please try again in a moment.",
-                            "provider" => "unknown",
-                            "source" => "unknown"
-                        ];
-                        $failedCount++;
-                        continue;
-                    } else {
-                        // Order was locked <1 minute ago - this is from current request, proceed
-                        Log::info("Order {$orderId} was locked {$secondsAgo} seconds ago (current request), proceeding", [
-                            'queue_started_at' => $queueStartedAt
-                        ]);
                     }
+                } elseif ($order->queue == 1 && !$queueStartedAt) {
+                    // Order is locked but queue_started_at is null - reset it and proceed
+                    Log::warning("Order {$orderId} is locked but queue_started_at is null, resetting timestamp", [
+                        'order_id' => $orderId
+                    ]);
+                    $order->update(['queue_started_at' => now()]);
                 }
                 
                 // CRITICAL: Check for active shipment to prevent duplicate label creation
@@ -1303,8 +1305,8 @@ class ShippingLabelService
                 
                 // CRITICAL: Ensure order is unlocked even on exception
                 try {
-                    $unlocked = Order::where('id', $orderId)->update(['queue' => 0]);
-                    if ($unlocked) {
+                    $unlocked = $this->orderLockService->unlockOrders([$orderId]);
+                    if ($unlocked > 0) {
                         Log::info("Order {$orderId} unlocked after exception");
                     }
                 } catch (\Exception $unlockException) {
@@ -1513,6 +1515,23 @@ class ShippingLabelService
             ]);
             // Re-throw to ensure this is visible
             throw new \Exception("Failed to save bulk shipping history: " . $e->getMessage(), 0, $e);
+        }
+
+        // CRITICAL: Unlock all processed orders at the end of processing
+        // This ensures orders are unlocked even if the controller's finally block doesn't run
+        try {
+            $unlockedCount = $this->orderLockService->unlockOrders($orderIds);
+            
+            if ($unlockedCount > 0) {
+                Log::info("Unlocked {$unlockedCount} orders after bulk label processing", [
+                    'order_ids' => $orderIds
+                ]);
+            }
+        } catch (\Exception $unlockException) {
+            Log::error("CRITICAL: Failed to unlock orders after bulk label processing", [
+                'error' => $unlockException->getMessage(),
+                'order_ids' => $orderIds
+            ]);
         }
 
         return [
