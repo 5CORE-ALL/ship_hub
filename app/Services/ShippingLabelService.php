@@ -441,7 +441,20 @@ class ShippingLabelService
                 $customerReference = substr($customerReference, 0, 35);
 
                 if ($provider === "sendle") {
-                    $items = OrderItem::where("order_id", $order->id)->get();
+                    // Sendle temporarily disabled - service unavailable
+                    $labels[] = [
+                        "order_id" => $orderId,
+                        "success" => false,
+                        "provider" => $provider,
+                        "source" => $source,
+                        "error" => "Sendle service is currently unavailable. Please use another shipping provider.",
+                        "message" => "Sendle service is currently unavailable. Please use another shipping provider.",
+                    ];
+                    $failedCount++;
+                    continue; // Skip to next order
+                    
+                    // Original Sendle code temporarily disabled below
+                    /*$items = OrderItem::where("order_id", $order->id)->get();
                     $skuQuantities = $items
                         ->groupBy("sku")
                         ->map(function ($group) {
@@ -754,6 +767,7 @@ class ShippingLabelService
                             ];
                         }
                     }
+                    */ // End of temporarily disabled Sendle code
                 } elseif ($provider === "shippo") {
                     try {
                         $label = $this->shippo->createLabelByRateId($rateId);

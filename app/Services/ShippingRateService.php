@@ -35,11 +35,13 @@ public function getDefaultRate(array $params): array
             Log::warning("ShipStation fetch failed: " . $e->getMessage());
         }
 
-        try {
-            $sendleRates = $this->sendle->getRates($params);
-        } catch (\Exception $e) {
-            Log::warning("Sendle fetch failed: " . $e->getMessage());
-        }
+        // Sendle temporarily disabled - service unavailable
+        // try {
+        //     $sendleRates = $this->sendle->getRates($params);
+        // } catch (\Exception $e) {
+        //     Log::warning("Sendle fetch failed: " . $e->getMessage());
+        // }
+        $sendleRates = [];
 
         try {
             $shippoRates = $this->shippo->getRates($params);
@@ -85,47 +87,47 @@ public function getDefaultRate(array $params): array
             }
         }
 
-        // Sendle
-        $sendleOptions = $sendleRates['options'] ?? [];
-        if (is_array($sendleOptions)) {
-            foreach ($sendleOptions as $rate) {
-                $eta = $rate['estimated_time'] ?? $rate['delivery_estimate'] ?? null;
-                if ($eta !== null && $eta <= $maxEta) {
-                    $normalizedRates[] = [
-                        'source'   => 'Sendle',
-                        'carrier'  => $rate['carrier'] ?? 'Sendle',
-                        'service'  => $rate['name'] ?? $rate['rate_id'] ?? 'Unknown',
-                        'price'    => $rate['price'] ?? 0,
-                        'currency' => $rate['currency'] ?? 'USD',
-                        'eta_days' => $eta,
-                        'raw'      => $rate,
-                        'rate_id'  => $rate['rate_id'] ?? null,
-                    ];
-                }
-            }
-        }
+        // Sendle temporarily disabled - service unavailable
+        // $sendleOptions = $sendleRates['options'] ?? [];
+        // if (is_array($sendleOptions)) {
+        //     foreach ($sendleOptions as $rate) {
+        //         $eta = $rate['estimated_time'] ?? $rate['delivery_estimate'] ?? null;
+        //         if ($eta !== null && $eta <= $maxEta) {
+        //             $normalizedRates[] = [
+        //                 'source'   => 'Sendle',
+        //                 'carrier'  => $rate['carrier'] ?? 'Sendle',
+        //                 'service'  => $rate['name'] ?? $rate['rate_id'] ?? 'Unknown',
+        //                 'price'    => $rate['price'] ?? 0,
+        //                 'currency' => $rate['currency'] ?? 'USD',
+        //                 'eta_days' => $eta,
+        //                 'raw'      => $rate,
+        //                 'rate_id'  => $rate['rate_id'] ?? null,
+        //             ];
+        //         }
+        //     }
+        // }
 
-        if (is_array($sendleRates)) {
+        // if (is_array($sendleRates)) {
 
-            foreach ($sendleRates as $rate) {
-                $quote = $rate['quote']['gross']['amount'] ?? null;
-                $currency = $rate['quote']['gross']['currency'] ?? 'USD';
-                $etaDays  = $rate['eta']['days_range'][1] ?? null; 
+        //     foreach ($sendleRates as $rate) {
+        //         $quote = $rate['quote']['gross']['amount'] ?? null;
+        //         $currency = $rate['quote']['gross']['currency'] ?? 'USD';
+        //         $etaDays  = $rate['eta']['days_range'][1] ?? null; 
 
-                if ($etaDays !== null && $etaDays <= $maxEta) {
-                    $normalizedRates[] = [
-                        'source'   => 'Sendle',
-                        'carrier'  => 'Sendle',
-                        'service'  => $rate['product']['name'] ?? $rate['product']['code'] ?? 'Unknown',
-                        'price'    => $quote,
-                        'currency' => $currency,
-                        'eta_days' => $etaDays,
-                        'raw'      => $rate,
-                        'rate_id'  => $rate['product']['code'] ?? null,
-                    ];
-                }
-            }
-        }
+        //         if ($etaDays !== null && $etaDays <= $maxEta) {
+        //             $normalizedRates[] = [
+        //                 'source'   => 'Sendle',
+        //                 'carrier'  => 'Sendle',
+        //                 'service'  => $rate['product']['name'] ?? $rate['product']['code'] ?? 'Unknown',
+        //                 'price'    => $quote,
+        //                 'currency' => $currency,
+        //                 'eta_days' => $etaDays,
+        //                 'raw'      => $rate,
+        //                 'rate_id'  => $rate['product']['code'] ?? null,
+        //             ];
+        //         }
+        //     }
+        // }
     
         $shippoOptions = $shippoRates;
         foreach ($shippoOptions as $rate) {

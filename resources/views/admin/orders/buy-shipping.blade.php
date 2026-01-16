@@ -204,7 +204,7 @@
                     <h5 class="fw-bold mb-2">Shipping Provider</h5>
                     <select class="form-select" id="labelPlatformSelect">
                         <option value="shipstation" selected>ShipStation</option>
-                        <option value="sendle">Sendle</option>
+                        <!-- Sendle temporarily disabled -->
                     </select>
                 </div>
            </div>

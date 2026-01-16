@@ -61,7 +61,12 @@ class AwaitingShipmentOrderBackupController extends Controller
             $query = OrderShippingRate::where('order_id', $orderId)
                 ->where('service', '!=', 'USPS Media Mail') 
                 ->where('service', '!=', 'Saver Drop Off') 
-                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%']);
+                ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+                // Exclude Sendle - service temporarily unavailable
+                ->where(function($q) {
+                    $q->whereRaw('LOWER(source) != ?', ['sendle'])
+                      ->whereRaw('LOWER(carrier) != ?', ['sendle']);
+                });
             
             // Filter by rate_type if provided
             if ($rateType === 'D') {
@@ -367,42 +372,11 @@ class AwaitingShipmentOrderBackupController extends Controller
                 }
             }
             } 
-            else
+            else if ($platform === 'sendle')
             {
-                        $sendleService = new SendleService();
-                        $ratesResponse = $sendleService->getRates([
-                            'sender_suburb'     => $shipper->city ?? 'New York',
-                            'sender_postcode'   => $shipper->postal_code ?? '10001',
-                            'sender_country'    => $shipper->country ?? 'US',
-                            'receiver_suburb'   => $order->ship_city,
-                            'receiver_postcode' => $order->ship_postal_code,
-                            'receiver_country'  => $order->ship_country,
-                            'weight_value'      => $weight,
-                            'length'            => $length,
-                            'width'             => $width,
-                            'height'            => $height,
-                        ]);
-
-                        if (isset($ratesResponse['options']) && count($ratesResponse['options'])) {
-                            foreach ($ratesResponse['options'] as $rate) {
-                                $options[] = [
-                                    'rate_id'        => $rate['rate_id'] ?? 'unknown', 
-                                    'id'             => $rate['id'] ?? 'unknown',      
-                                    'name'           => $rate['name'] ?? 'Sendle Service',
-                                    'estimated_time' => $rate['estimated_time'] ?? 'N/A',
-                                    'description'    => $rate['description'] ?? 'Shipping',
-                                    'price'          => $rate['price'] ?? 0,
-                                    'currency'       => $rate['currency'] ?? 'USD',
-                                    'length'         => $length,
-                                    'width'          => $width,
-                                    'height'         => $height,
-                                    'weight'         => $weight,
-                                    'carrier'        => $rate['carrier'] ?? 'Sendle',
-                                    'platform'       => 'Sendle',
-                                ];
-                            }
-                        }
-
+                        // Sendle temporarily disabled - service unavailable
+                        // Returning empty options array
+                        $options = [];
             }
 
             return response()->json([
@@ -767,7 +741,9 @@ public function getAwaitingShipmentOrders(Request $request)
             // This will be overridden by best_rate_d/best_rate_o from the maps below
             $join->on('orders.id', '=', 'order_shipping_rates.order_id')
                  ->where('order_shipping_rates.is_cheapest', 1)
-                 ->where('order_shipping_rates.rate_type', 'D');
+                 ->where('order_shipping_rates.rate_type', 'D')
+                 ->whereRaw('LOWER(order_shipping_rates.source) != ?', ['sendle'])
+                 ->whereRaw('LOWER(order_shipping_rates.carrier) != ?', ['sendle']);
         })
         ->leftJoin('dimension_data', 'order_items.sku', '=', 'dimension_data.sku')
         ->where('orders.printing_status', 0)
@@ -1172,19 +1148,29 @@ if (!empty($weightRanges) && !in_array('all', $weightRanges)) {
         $bestRatesOMap = [];
         if (!empty($orderIds)) {
             // Get the cheapest rate for each order with rate_type='D' using is_cheapest flag
+            // Exclude Sendle - service temporarily unavailable
             $bestRatesD = OrderShippingRate::whereIn('order_id', $orderIds)
                 ->where('rate_type', 'D')
                 ->where('is_cheapest', 1)
+                ->where(function($query) {
+                    $query->whereRaw('LOWER(source) != ?', ['sendle'])
+                          ->whereRaw('LOWER(carrier) != ?', ['sendle']);
+                })
                 ->get(['order_id', 'carrier', 'service', 'price', 'source', 'currency'])
                 ->keyBy('order_id');
             
             // Get the cheapest rate for each order with rate_type='O' (or NULL for backward compatibility) using is_cheapest flag
+            // Exclude Sendle - service temporarily unavailable
             $bestRatesO = OrderShippingRate::whereIn('order_id', $orderIds)
                 ->where(function($query) {
                     $query->where('rate_type', 'O')
                           ->orWhereNull('rate_type');
                 })
                 ->where('is_cheapest', 1)
+                ->where(function($query) {
+                    $query->whereRaw('LOWER(source) != ?', ['sendle'])
+                          ->whereRaw('LOWER(carrier) != ?', ['sendle']);
+                })
                 ->get(['order_id', 'carrier', 'service', 'price', 'source', 'currency'])
                 ->keyBy('order_id');
             
@@ -2181,7 +2167,12 @@ public function fetchRateO(Request $request)
         }
         
         // Get the cheapest rate (lowest price) - explicitly sort to ensure lowest is first
-        $rates = $rateResult['rates'] ?? [];
+        // Filter out Sendle rates - service temporarily unavailable
+        $rates = array_values(array_filter($rateResult['rates'] ?? [], function($rate) {
+            $source = strtolower($rate['source'] ?? '');
+            $carrier = strtolower($rate['carrier'] ?? '');
+            return $source !== 'sendle' && $carrier !== 'sendle';
+        }));
         usort($rates, function($a, $b) {
             return ($a['price'] ?? 0) <=> ($b['price'] ?? 0);
         });
@@ -2198,7 +2189,12 @@ public function fetchRateO(Request $request)
         // Save all rates to database for Best Rate (O) - similar to fetchRateD
         // Use rate_type='O' to distinguish from D rates
         // IMPORTANT: Include rate_type in unique key to prevent overwriting D rates
-        $normalizedRates = $rateResult['rates'] ?? [];
+        // Filter out Sendle rates before saving - service temporarily unavailable
+        $normalizedRates = array_values(array_filter($rateResult['rates'] ?? [], function($rate) {
+            $source = strtolower($rate['source'] ?? '');
+            $carrier = strtolower($rate['carrier'] ?? '');
+            return $source !== 'sendle' && $carrier !== 'sendle';
+        }));
         $savedCount = 0;
         foreach ($normalizedRates as $rate) {
             try {
@@ -2249,6 +2245,7 @@ public function fetchRateO(Request $request)
         // IMPORTANT: Compare against ALL eligible rates in database (not just newly saved ones)
         // This ensures we select the absolute cheapest rate, even if it was saved in a previous fetch
         // Include both 'O' and NULL rate_type for backward compatibility
+        // Exclude Sendle - service temporarily unavailable
         $eligibleRates = OrderShippingRate::where('order_id', $orderId)
             ->where(function($query) {
                 $query->where('rate_type', 'O')
@@ -2257,6 +2254,10 @@ public function fetchRateO(Request $request)
             ->where('service', '!=', 'USPS Media Mail') 
             ->where('service', '!=', 'Saver Drop Off')
             ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+            ->where(function($query) {
+                $query->whereRaw('LOWER(source) != ?', ['sendle'])
+                      ->whereRaw('LOWER(carrier) != ?', ['sendle']);
+            })
             ->get();
         
         // Find the absolute cheapest rate by comparing prices as decimals
@@ -2435,7 +2436,12 @@ public function fetchRateD(Request $request)
         }
         
         // Get the cheapest rate (lowest price) - explicitly sort to ensure lowest is first
-        $rates = $rateResult['rates'] ?? [];
+        // Filter out Sendle rates - service temporarily unavailable
+        $rates = array_values(array_filter($rateResult['rates'] ?? [], function($rate) {
+            $source = strtolower($rate['source'] ?? '');
+            $carrier = strtolower($rate['carrier'] ?? '');
+            return $source !== 'sendle' && $carrier !== 'sendle';
+        }));
         usort($rates, function($a, $b) {
             return ($a['price'] ?? 0) <=> ($b['price'] ?? 0);
         });
@@ -2508,6 +2514,10 @@ public function fetchRateD(Request $request)
             ->where('service', '!=', 'USPS Media Mail') 
             ->where('service', '!=', 'Saver Drop Off')
             ->whereRaw('LOWER(service) NOT LIKE ?', ['%dropoff%'])
+            ->where(function($query) {
+                $query->whereRaw('LOWER(source) != ?', ['sendle'])
+                      ->whereRaw('LOWER(carrier) != ?', ['sendle']);
+            })
             ->get();
         
         // Find the absolute cheapest rate by comparing prices as decimals
