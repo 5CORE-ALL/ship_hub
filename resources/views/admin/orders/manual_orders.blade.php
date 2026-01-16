@@ -394,7 +394,7 @@
                     data: 'id',
                     title: '<input type="checkbox" id="selectAll">',
                     render: function(data, type, row) {
-                        if (row.weight != null && row.default_price != null && parseFloat(row.weight) > 0) {
+                        if (row.weight != null && parseFloat(row.weight) > 0) {
                             return `<input type="checkbox" class="order-checkbox" value="${data}">`;
                         }
                         return `<a href="#" class="text-info info-icon" data-bs-toggle="modal" data-bs-target="#weightInfoModal" title="Click for info"><i class="fas fa-info-circle"></i></a>`;

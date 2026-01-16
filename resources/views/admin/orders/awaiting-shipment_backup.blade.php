@@ -853,7 +853,7 @@
                     data: 'id',
                     title: '<input type="checkbox" id="selectAllD">',
                     render: function(data, type, row) {
-                        const hasValidWeight = row.weight != null && row.default_price != null && parseFloat(row.weight) > 0;
+                        const hasValidWeight = row.weight != null && parseFloat(row.weight) > 0;
                         // Allow if recipient_name exists OR if address data exists (city, state, postal)
                         const hasRecipientName = row.recipient_name && row.recipient_name.trim() !== '' && row.recipient_name !== 'null' && row.recipient_name !== 'NULL';
                         const hasAddressData = (row.ship_city && row.ship_city.trim() !== '') || (row.ship_state && row.ship_state.trim() !== '') || (row.ship_postal_code && row.ship_postal_code.trim() !== '');
