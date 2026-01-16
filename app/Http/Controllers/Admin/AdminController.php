@@ -88,7 +88,7 @@ $all_courier = DB::table('orders as o')
             $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3'])
               ->orWhereNull('orders.source_name');
         })
-        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','amazon'])
+        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb']) // amazon removed: No longer maintaining Amazon orders shipment
         ->where('orders.queue',0)
         ->where('marked_as_ship',0)
         ->whereIn('orders.order_status', [
@@ -140,12 +140,12 @@ $total_labels_created = Shipment::join('orders as o', 'shipments.order_id', '=',
     $shipped_orders = $query->count();
 
     $connected_marketplaces = Order::query()
-    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc.",'amazon'])
+    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc."]) // amazon removed: No longer maintaining Amazon orders shipment
     ->distinct('marketplace')
     ->count('marketplace');
     
     $connected_marketplaces_list = Order::query()
-    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc.",'amazon'])
+    ->whereIn('marketplace', ['ebay1','ebay3','walmart','Reverb','PLS','shopify','Best Buy USA',"Macy's, Inc."]) // amazon removed: No longer maintaining Amazon orders shipment
     ->distinct('marketplace')
     ->pluck('marketplace')
     ->sort()

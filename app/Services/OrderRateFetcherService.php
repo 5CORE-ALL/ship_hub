@@ -35,7 +35,7 @@ class OrderRateFetcherService
                 'order_items.weight'
             )
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
-            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','amazon','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','amazon','tiktok'])
+            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok']) // amazon removed: No longer maintaining Amazon orders shipment
             ->whereNotNull('orders.recipient_name')         
             ->where('orders.recipient_name', '!=', '')
             ->whereNotNull('orders.ship_address1')

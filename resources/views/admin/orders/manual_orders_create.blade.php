@@ -192,7 +192,7 @@
                             <label class="form-label required-field">Platform/Marketplace</label>
                             <select class="form-select" name="marketplace" id="marketplace" required>
                                 <option value="">Select Platform</option>
-                                <option value="amazon">Amazon</option>
+                                <!-- <option value="amazon">Amazon</option> --> <!-- DISABLED: No longer maintaining Amazon orders shipment -->
                                 <option value="ebay">eBay</option>
                                 <option value="walmart">Walmart</option>
                                 <option value="shopify">Shopify</option>

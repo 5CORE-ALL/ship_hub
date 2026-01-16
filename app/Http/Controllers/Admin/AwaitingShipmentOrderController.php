@@ -177,67 +177,18 @@ class AwaitingShipmentOrderController extends Controller
             ->take($request->length ?? 50)
             ->get();
 
-        // Automatically fetch eDesk data for Amazon orders with missing recipient names (limit to first 10 to avoid performance issues)
-        $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
-        if ($edeskService) {
-            $ordersToUpdate = $orders->filter(function ($order) {
-                return $order->marketplace === 'amazon' && 
-                       (empty($order->recipient_name) || $order->recipient_name === 'null' || $order->recipient_name === 'NULL');
-            })->take(10); // Limit to 10 orders per page load to avoid performance issues
-            
-            foreach ($ordersToUpdate as $order) {
-                try {
-                    $edeskCustomer = $edeskService->getCustomerDetailsByOrderId($order->order_number);
-                    if ($edeskCustomer) {
-                        $updateData = [];
-                        if (!empty($edeskCustomer['name'])) {
-                            $updateData['recipient_name'] = trim($edeskCustomer['name']);
-                        }
-                        if (empty($order->ship_address1) && !empty($edeskCustomer['address1'])) {
-                            $updateData['ship_address1'] = $edeskCustomer['address1'];
-                        }
-                        if (empty($order->ship_address2) && !empty($edeskCustomer['address2'])) {
-                            $updateData['ship_address2'] = $edeskCustomer['address2'];
-                        }
-                        if (empty($order->ship_city) && !empty($edeskCustomer['city'])) {
-                            $updateData['ship_city'] = $edeskCustomer['city'];
-                        }
-                        if (empty($order->ship_state) && !empty($edeskCustomer['state'])) {
-                            $updateData['ship_state'] = $edeskCustomer['state'];
-                        }
-                        if (empty($order->ship_postal_code) && !empty($edeskCustomer['postal_code'])) {
-                            $updateData['ship_postal_code'] = $edeskCustomer['postal_code'];
-                        }
-                        if (empty($order->ship_country) && !empty($edeskCustomer['country'])) {
-                            $updateData['ship_country'] = $edeskCustomer['country'];
-                        }
-                        if (empty($order->recipient_phone) && !empty($edeskCustomer['phone'])) {
-                            $updateData['recipient_phone'] = $edeskCustomer['phone'];
-                        }
-                        if (empty($order->recipient_email) && !empty($edeskCustomer['email'])) {
-                            $updateData['recipient_email'] = $edeskCustomer['email'];
-                        }
-                        if (!empty($updateData)) {
-                            Order::where('id', $order->id)->update($updateData);
-                            // Refresh the order object with updated data
-                            $order = $order->fresh();
-                            Log::info('Auto-updated order with eDesk data', [
-                                'order_id' => $order->id,
-                                'order_number' => $order->order_number,
-                                'updated_fields' => array_keys($updateData),
-                            ]);
-                        }
-                    }
-                } catch (\Exception $e) {
-                    // Silently fail - don't break the page if eDesk fetch fails
-                    Log::debug('Auto eDesk fetch failed for order', [
-                        'order_id' => $order->id,
-                        'order_number' => $order->order_number,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-        }
+        // Amazon-specific eDesk data fetching - DISABLED: No longer maintaining Amazon orders shipment
+        // $edeskService = config('services.edesk.bearer_token') ? new \App\Services\EDeskService() : null;
+        // if ($edeskService) {
+        //     $ordersToUpdate = $orders->filter(function ($order) {
+        //         return $order->marketplace === 'amazon' && 
+        //                (empty($order->recipient_name) || $order->recipient_name === 'null' || $order->recipient_name === 'NULL');
+        //     })->take(10);
+        //     
+        //     foreach ($ordersToUpdate as $order) {
+        //         // ... eDesk fetching logic removed
+        //     }
+        // }
 
     // Add dimension columns (L, W, H, WT) to each order row
     $orders = $orders->map(function ($order) {
@@ -679,9 +630,12 @@ public function refreshEdeskData(Request $request)
         try {
             $order = Order::findOrFail($orderId);
             
-            // Only process Amazon orders
-            if ($order->marketplace !== 'amazon') {
-                continue;
+            // Amazon orders no longer processed for shipment - DISABLED: No longer maintaining Amazon orders shipment
+            // if ($order->marketplace !== 'amazon') {
+            //     continue;
+            // }
+            if ($order->marketplace === 'amazon') {
+                continue; // Skip Amazon orders
             }
 
             // Fetch customer details from eDesk

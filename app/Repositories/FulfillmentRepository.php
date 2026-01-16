@@ -11,7 +11,7 @@ use App\Services\ProLightSoundsFulfillmentService;
 use App\Services\MiraklFulfillmentService;
 use App\Services\AliExpressAuthService;
 use App\Services\TikTokAuthService;
-use App\Services\AmazonFulfillmentService; 
+// use App\Services\AmazonFulfillmentService; // DISABLED: No longer maintaining Amazon orders shipment 
 use Illuminate\Support\Facades\Log;
 use App\Models\Order;
 
@@ -29,7 +29,7 @@ class FulfillmentRepository
         MiraklFulfillmentService $miracleService,
         AliExpressAuthService $aliexpressService,
         TikTokAuthService $tiktokService,
-        AmazonFulfillmentService $amazonService,
+        // AmazonFulfillmentService $amazonService, // DISABLED: No longer maintaining Amazon orders shipment
         // TemuFulfillmentService $temuService,
     ) {
         $this->services = [
@@ -42,7 +42,7 @@ class FulfillmentRepository
             'miracle'       => $miracleService,
             'aliexpress'    => $aliexpressService,
             'tiktok'        => $tiktokService,
-            'amazon'        => $amazonService,
+            // 'amazon'        => $amazonService, // DISABLED: No longer maintaining Amazon orders shipment
 
             // 'temu'    => $temuService,
         ];
@@ -266,30 +266,30 @@ class FulfillmentRepository
             }
         }
 
-        // Amazon fulfillment
-        $amazonMarketplace = strtolower(trim($marketplace));
-        if ($amazonMarketplace === 'amazon') {
-            Log::info("➡ {$marketplace} order routed to Amazon fulfillment");
-            
-            if (!isset($this->services['amazon'])) {
-                Log::error("❌ Amazon fulfillment service not configured");
-                return null;
-            }
+        // Amazon fulfillment - DISABLED: No longer maintaining Amazon orders shipment
+        // $amazonMarketplace = strtolower(trim($marketplace));
+        // if ($amazonMarketplace === 'amazon') {
+        //     Log::info("➡ {$marketplace} order routed to Amazon fulfillment");
+        //     
+        //     if (!isset($this->services['amazon'])) {
+        //         Log::error("❌ Amazon fulfillment service not configured");
+        //         return null;
+        //     }
 
-            try {
-                return $this->services['amazon']->fulfillOrder(
-                    $marketplace,
-                    $storeId,
-                    $orderNumber,
-                    $trackingNumber,
-                    $carrier,
-                    $shippingServiceCode
-                );
-            } catch (\Throwable $e) {
-                Log::error("❌ Amazon fulfillment failed: {$e->getMessage()}");
-                return ['success' => false, 'error' => $e->getMessage()];
-            }
-        }
+        //     try {
+        //         return $this->services['amazon']->fulfillOrder(
+        //             $marketplace,
+        //             $storeId,
+        //             $orderNumber,
+        //             $trackingNumber,
+        //             $carrier,
+        //             $shippingServiceCode
+        //         );
+        //     } catch (\Throwable $e) {
+        //         Log::error("❌ Amazon fulfillment failed: {$e->getMessage()}");
+        //         return ['success' => false, 'error' => $e->getMessage()];
+        //     }
+        // }
         if (!isset($this->services[$marketplace])) {
             Log::error("❌ No fulfillment service found for marketplace: {$marketplace}");
             return null;

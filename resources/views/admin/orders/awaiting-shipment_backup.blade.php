@@ -938,13 +938,16 @@
                     data: 'id',
                     title: '<input type="checkbox" id="selectAllO">',
                     render: function(data, type, row) {
-                        const length = parseFloat(row.length) || 0;
-                        const width = parseFloat(row.width) || 0;
-                        const height = parseFloat(row.height) || 0;
-                        const wt_act = parseFloat(row.wt_act) || 0;
-                        const quantity = parseFloat(row.quantity) || 0;
-                        const wt_act_s = wt_act * quantity;
-                        const hasValidDimensions = length > 0 && width > 0 && height > 0 && wt_act_s > 0;
+                        // Use L, W, H, WT columns (same logic as Best Rate (DIM))
+                        // Use 'l' from invent DB, fallback to 'length'
+                        const length = parseFloat(row.l) || parseFloat(row.length) || 0;
+                        // Use 'w' from invent DB, fallback to 'width'
+                        const width = parseFloat(row.w) || parseFloat(row.width) || 0;
+                        // Use 'h' from invent DB, fallback to 'height'
+                        const height = parseFloat(row.h) || parseFloat(row.height) || 0;
+                        // Use 'wt' from invent DB (wt_decl), fallback to 'weight'
+                        const weight = parseFloat(row.wt) || parseFloat(row.weight) || 0;
+                        const hasValidDimensions = length > 0 && width > 0 && height > 0 && weight > 0;
                         // Allow if recipient_name exists OR if address data exists (city, state, postal)
                         const hasRecipientName = row.recipient_name && row.recipient_name.trim() !== '' && row.recipient_name !== 'null' && row.recipient_name !== 'NULL';
                         const hasAddressData = (row.ship_city && row.ship_city.trim() !== '') || (row.ship_state && row.ship_state.trim() !== '') || (row.ship_postal_code && row.ship_postal_code.trim() !== '');
@@ -973,12 +976,14 @@
                     title: 'Best Rate (DIM)',
                     render: function(data, type, row) {
                         const orderId = row.id;
-                        const length = parseFloat(row.length) || 0;
-                        const width = parseFloat(row.width) || 0;
-                        const height = parseFloat(row.height) || 0;
-                        const wt_act = parseFloat(row.wt_act) || 0;
-                        const quantity = parseFloat(row.quantity) || 0;
-                        const wt_act_s = wt_act * quantity;
+                        // Use 'l' from invent DB, fallback to 'length' (same logic as L column)
+                        const length = parseFloat(row.l) || parseFloat(row.length) || 0;
+                        // Use 'w' from invent DB, fallback to 'width' (same logic as W column)
+                        const width = parseFloat(row.w) || parseFloat(row.width) || 0;
+                        // Use 'h' from invent DB, fallback to 'height' (same logic as H column)
+                        const height = parseFloat(row.h) || parseFloat(row.height) || 0;
+                        // Use 'wt' from invent DB (wt_decl), fallback to 'weight' (same logic as WT column)
+                        const weight = parseFloat(row.wt) || parseFloat(row.weight) || 0;
                         
                         // Check if we have cached rate for this order (Best Rate O)
                         const cachedRate = row.best_rate_o || null;
@@ -1003,13 +1008,13 @@
                                     data-length="${length}"
                                     data-width="${width}"
                                     data-height="${height}"
-                                    data-weight="${wt_act_s}"
+                                    data-weight="${weight}"
                                     data-ship-to-zip="${row.ship_postal_code || ''}"
                                     data-ship-to-state="${row.ship_state || ''}"
                                     data-ship-to-city="${row.ship_city || ''}"
                                     data-ship-to-country="${row.ship_country || 'US'}"
                                     title="Fetch Best Rate (DIM)"
-                                    ${(length === 0 || width === 0 || height === 0 || wt_act_s === 0) ? 'disabled' : ''}>
+                                    ${(length === 0 || width === 0 || height === 0 || weight === 0) ? 'disabled' : ''}>
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                                 <button
@@ -1474,13 +1479,15 @@
                     const heightD = parseFloat(row.height_d) || 0;
                     const weightD = parseFloat(row.weight_d) || 0;
                     
-                    // Get regular dimensions for Best Rate (DIM)
-                    const length = parseFloat(row.length) || 0;
-                    const width = parseFloat(row.width) || 0;
-                    const height = parseFloat(row.height) || 0;
-                    const wt_act = parseFloat(row.wt_act) || 0;
-                    const quantity = parseFloat(row.quantity) || 0;
-                    const wt_act_s = wt_act * quantity;
+                    // Get regular dimensions for Best Rate (DIM) - use L, W, H, WT columns
+                    // Use 'l' from invent DB, fallback to 'length' (same logic as L column)
+                    const length = parseFloat(row.l) || parseFloat(row.length) || 0;
+                    // Use 'w' from invent DB, fallback to 'width' (same logic as W column)
+                    const width = parseFloat(row.w) || parseFloat(row.width) || 0;
+                    // Use 'h' from invent DB, fallback to 'height' (same logic as H column)
+                    const height = parseFloat(row.h) || parseFloat(row.height) || 0;
+                    // Use 'wt' from invent DB (wt_decl), fallback to 'weight' (same logic as WT column)
+                    const weight = parseFloat(row.wt) || parseFloat(row.weight) || 0;
                     
                     // Fetch Best Rate (DECL) if missing and dimensions are available
                     if (needsBestRateD && lengthD > 0 && widthD > 0 && heightD > 0 && weightD > 0) {
@@ -1492,11 +1499,11 @@
                     }
                     
                     // Fetch Best Rate (DIM) if missing and dimensions are available
-                    if (needsBestRateO && length > 0 && width > 0 && height > 0 && wt_act_s > 0) {
+                    if (needsBestRateO && length > 0 && width > 0 && height > 0 && weight > 0) {
                         const fetchKey = `o_${orderId}`;
                         if (!fetchingRates.has(fetchKey)) {
                             fetchingRates.add(fetchKey);
-                            fetchBestRateO(orderId, length, width, height, wt_act_s, row);
+                            fetchBestRateO(orderId, length, width, height, weight, row);
                         }
                     }
                 });
@@ -3197,7 +3204,7 @@
         Swal.fire({
             icon: 'warning',
             title: 'Missing Data',
-            text: 'Please ensure L, W, H, and WT ACT S values are available',
+            text: 'Please ensure L, W, H, and WT values are available',
             confirmButtonText: 'OK'
         });
         return;

@@ -55,7 +55,7 @@ class HistoryController extends Controller
             $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3'])
               ->orWhereNull('orders.source_name');
         })
-        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','amazon'])
+        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb']) // amazon removed: No longer maintaining Amazon orders shipment
         // ->where('orders.queue',0)
         // ->whereIn('orders.order_status', [
         //     'Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted', 'awaiting_shipment','Created','Acknowledged','AWAITING_SHIPMENT'

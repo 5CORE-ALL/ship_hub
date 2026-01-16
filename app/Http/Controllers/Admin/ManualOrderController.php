@@ -33,7 +33,7 @@ class ManualOrderController extends Controller
 
         return DB::transaction(function () use ($request) {
             $validator = Validator::make($request->all(), [
-                'marketplace' => 'required|string|in:amazon,ebay,walmart,shopify,reverb,tiktok,temu,manual',
+                'marketplace' => 'required|string|in:ebay,walmart,shopify,reverb,tiktok,temu,manual', // amazon removed: No longer maintaining Amazon orders shipment
                 'order_number' => 'required',
                 'order_date' => 'required|date',
                 'order_total' => 'required|numeric|min:0.01',
@@ -248,7 +248,7 @@ class ManualOrderController extends Controller
                  ->where('order_shipping_rates.is_cheapest', 1);
         })
         ->where('orders.printing_status', 0)
-        ->whereIn('orders.marketplace', ['ebay1', 'ebay2', 'ebay3','amazon','manual','walmart','Shopify','Reverb','Temu'])
+        ->whereIn('orders.marketplace', ['ebay1', 'ebay2', 'ebay3','manual','walmart','Shopify','Reverb','Temu']) // amazon removed: No longer maintaining Amazon orders shipment
         ->whereIn('orders.order_status', [
             'Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted', 'awaiting_shipment','pending','Created'
         ])
