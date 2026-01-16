@@ -25,6 +25,7 @@ class AwaitingShipmentOrderController extends Controller
      public function index()
      {
         $orders = Order::whereIn('order_status', ['Unshipped', 'PartiallyShipped','Accepted'])
+         ->whereNotIn('marketplace', ['amazon', 'Amazon', 'AMAZON']) // Exclude Amazon orders (all case variations)
          ->orderBy('created_at', 'desc')
          ->get();
         $services = ShippingService::where('active', true)
@@ -35,7 +36,8 @@ class AwaitingShipmentOrderController extends Controller
                             ->pluck('name')
                             ->unique()
                             ->values();
-        $marketplaces = Order::pluck('marketplace')
+        $marketplaces = Order::whereNotIn('marketplace', ['amazon', 'Amazon', 'AMAZON']) // Exclude Amazon from marketplace list (all case variations)
+    ->pluck('marketplace')
     ->unique()
     ->values();
     $canBuyShipping = auth()->user()->can('buy shipping'); 
@@ -44,6 +46,7 @@ class AwaitingShipmentOrderController extends Controller
     $ohioTimezone = 'America/New_York';
     $todayCutoff = Carbon::today($ohioTimezone)->setTime(15, 30, 0); // Today at 3:30 PM Ohio time
     $overdueCount = Order::whereIn('order_status', ['Unshipped', 'unshipped', 'PartiallyShipped', 'Accepted'])
+        ->whereNotIn('marketplace', ['amazon', 'Amazon', 'AMAZON']) // Exclude Amazon orders (all case variations)
         ->where('created_at', '<', $todayCutoff->utc())
         ->count();
 
@@ -92,10 +95,11 @@ class AwaitingShipmentOrderController extends Controller
             )
             ->leftJoin('order_items', 'orders.id', '=', 'order_items.order_id')
             ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted'])
+            ->whereNotIn('orders.marketplace', ['amazon', 'Amazon', 'AMAZON']) // Exclude Amazon orders (all case variations)
             ->groupBy('orders.id');
         
         // Apply filters
-        if (!empty($request->marketplace)) {
+        if (!empty($request->marketplace) && !in_array(strtolower($request->marketplace), ['amazon'])) {
             $query->where('orders.marketplace', $request->marketplace);
         }
         if (!empty($request->from_date)) {
@@ -120,10 +124,11 @@ class AwaitingShipmentOrderController extends Controller
         
         // Get total count (before pagination) - use a simpler count query
         $countQuery = Order::query()
-            ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted']);
+            ->whereIn('orders.order_status', ['Unshipped','unshipped', 'PartiallyShipped','Accepted'])
+            ->whereNotIn('orders.marketplace', ['amazon', 'Amazon', 'AMAZON']); // Exclude Amazon orders (all case variations)
         
         // Apply same filters for count
-        if (!empty($request->marketplace)) {
+        if (!empty($request->marketplace) && !in_array(strtolower($request->marketplace), ['amazon'])) {
             $countQuery->where('orders.marketplace', $request->marketplace);
         }
         if (!empty($request->from_date)) {

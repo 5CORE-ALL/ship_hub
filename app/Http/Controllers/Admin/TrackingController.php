@@ -15,7 +15,10 @@ class TrackingController extends Controller
      */
     public function index()
     {
-        $results = MarketplaceTrackingStat::where('marketplace_name','!=','ebay2')->orderBy('marketplace_name', 'asc')->get();
+        $results = MarketplaceTrackingStat::where('marketplace_name','!=','ebay2')
+            ->where('marketplace_name', '!=', 'amazon') // Exclude Amazon orders
+            ->orderBy('marketplace_name', 'asc')
+            ->get();
 
         // Calculate overall stats
         $totalOrders = $results->sum('total_orders');

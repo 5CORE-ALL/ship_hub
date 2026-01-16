@@ -23,11 +23,11 @@ class PrintOrderController extends Controller
                                          ->unique()
                                          ->values();
 
-           $marketplaces = Order::query()
+            $marketplaces = Order::query()
             ->whereIn('marketplace', [
                 'ebay1', 'ebay2', 'ebay3', 'shopify', 'walmart',
                 'reverb', 'PLS', 'Temu', 'TikTok',
-                'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc.",'amazon'
+                'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc."
             ])
             ->distinct()
             ->pluck('marketplace');
@@ -357,7 +357,8 @@ public function getAwaitingPrintOrders(Request $request)
             DB::raw('COALESCE(oi.item_sku, "N/A") as item_sku')
         )
         ->whereRaw('LOWER(o.order_status) = ?', ['shipped'])
-        ->where('o.printing_status', 1);
+        ->where('o.printing_status', 1)
+        ->where('o.marketplace', '!=', 'amazon'); // Exclude Amazon orders
         // ->whereBetween(DB::raw('DATE(s.created_at)'), [$fromDate, $toDate]);
 
     if (!empty($request->search['value'])) {

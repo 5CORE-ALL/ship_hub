@@ -166,6 +166,7 @@ public function getShippedOrders(Request $request)
         )
         ->whereIn('o.order_status', ['shipped', 'delivered'])
         ->where('o.printing_status', 2)
+        ->where('o.marketplace', '!=', 'amazon') // Exclude Amazon orders
         ->whereBetween(DB::raw('DATE(s.updated_at)'), [$fromDate, $toDate]);
 
     if (!empty($request->search['value'])) {

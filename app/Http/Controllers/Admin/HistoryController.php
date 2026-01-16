@@ -289,7 +289,7 @@ public function successHistory($batchId)
         ->whereIn('marketplace', [
             'ebay1', 'ebay2', 'ebay3', 'shopify', 'walmart',
             'reverb', 'PLS', 'Temu', 'TikTok',
-            'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc.",'amazon'
+            'Best Buy USA', 'Business 5core', 'Wayfair',"Macy's, Inc."
         ])
         ->distinct()
         ->pluck('marketplace');
@@ -323,6 +323,7 @@ public function getBatchOrders($batchId)
         return response()->json(['data' => []]);
     }
      $orders = Order::whereIn('id', $orderIds)
+        ->where('marketplace', '!=', 'amazon') // Exclude Amazon orders
         ->select('order_number', 'marketplace')
         ->get();
 
@@ -346,6 +347,7 @@ public function getBatchOrdersfailed($batchId)
         return response()->json(['data' => []]);
     }
     $orders = Order::whereIn('id', $orderIds)
+        ->where('marketplace', '!=', 'amazon') // Exclude Amazon orders
         ->select('order_number', 'marketplace')
         ->get();
 

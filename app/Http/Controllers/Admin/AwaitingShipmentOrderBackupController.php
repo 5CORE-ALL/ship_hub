@@ -161,7 +161,7 @@ class AwaitingShipmentOrderBackupController extends Controller
                 $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3','shopify_draft_order'])
                   ->orWhereNull('orders.source_name');
             })
-            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok','amazon'])
+            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok']) // amazon removed: No longer maintaining Amazon orders shipment
             ->where('orders.queue',0)
             ->where('marked_as_ship',0)
             ->whereIn('orders.order_status', [
@@ -190,7 +190,7 @@ class AwaitingShipmentOrderBackupController extends Controller
                 $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3','shopify_draft_order'])
                   ->orWhereNull('orders.source_name');
             })
-            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok','amazon'])
+            ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok']) // amazon removed: No longer maintaining Amazon orders shipment
             ->where('orders.queue',0)
             ->where('marked_as_ship',0)
             ->whereIn('orders.order_status', [
@@ -776,7 +776,7 @@ public function getAwaitingShipmentOrders(Request $request)
             $q->whereNotIn('orders.source_name', ['ebay', 'ebay2', 'ebay3','shopify_draft_order'])
               ->orWhereNull('orders.source_name');
         })
-        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok','amazon'])
+        ->whereIn('orders.marketplace', ['ebay1','ebay3','walmart','PLS','shopify','Best Buy USA',"Macy's, Inc.",'Reverb','aliexpress','tiktok']) // amazon removed: No longer maintaining Amazon orders shipment
         ->where('orders.queue',0)
         ->where('marked_as_ship',0)
         ->whereIn('orders.order_status', [
@@ -791,10 +791,17 @@ public function getAwaitingShipmentOrders(Request $request)
     //     $baseQuery->where('orders.marketplace', $request->marketplace);
     // }
     if (!empty($request->marketplace)) {
-        if (is_array($request->marketplace)) {
-            $baseQuery->whereIn('orders.marketplace', $request->marketplace);
-        } else {
-            $baseQuery->where('orders.marketplace', $request->marketplace);
+        // Filter out Amazon from marketplace filter if selected
+        $marketplaceFilter = is_array($request->marketplace) 
+            ? array_filter($request->marketplace, fn($m) => !in_array(strtolower($m), ['amazon']))
+            : (!in_array(strtolower($request->marketplace), ['amazon']) ? $request->marketplace : null);
+        
+        if (!empty($marketplaceFilter)) {
+            if (is_array($marketplaceFilter)) {
+                $baseQuery->whereIn('orders.marketplace', $marketplaceFilter);
+            } else {
+                $baseQuery->where('orders.marketplace', $marketplaceFilter);
+            }
         }
     }
 
